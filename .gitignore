@@ -1,0 +1,19 @@
+# This repo is documentation only - no code, no data, no weights.
+# Keep it that way; the code lives in the two forks linked from the README.
+
+# Reports and presentations stay off GitHub.
+*.pdf
+*.pptx
+*.key
+
+# Data / weights, in case anything is ever copied in here by accident.
+data/
+*.pth
+*.npz
+*.npy
+*.bag
+*.db3
+
+__pycache__/
+.vscode/
+.DS_Store
