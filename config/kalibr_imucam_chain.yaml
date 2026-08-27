@@ -1,0 +1,49 @@
+%YAML:1.0
+
+# MUN-FRL Bell412 sequences — down (nadir) camera.
+# Source: https://mun-frl-vil-dataset.readthedocs.io/en/latest/Calibration.html
+#
+# The dataset publishes KANNALA_BRANDT (VINS-Fusion naming) which is the
+# equidistant/fisheye model in OpenVINS terms.
+#   mu, mv, u0, v0  ->  intrinsics [fu, fv, cu, cv]
+#   k2, k3, k4, k5  ->  distortion_coeffs [k1, k2, k3, k4]
+#
+# T_imu_cam below is the dataset's body_T_camDown verbatim. OpenVINS defines
+# T_imu_cam as "rotation from camera to IMU R_CtoI, position of camera in IMU
+# p_CinI" (see config/alto/kalibr_imucam_chain.yaml and VioManagerOptions.h:264),
+# which is exactly what body_T_camDown encodes. No inversion is required.
+
+cam0:
+  T_imu_cam: #rotation from camera to IMU R_CtoI, position of camera in IMU p_CinI
+    - [-0.01039363,  0.99994595,  0.00027614, -0.27939175]
+    - [-0.99982944, -0.01038820, -0.01527021,  0.00394073]
+    - [-0.01526652, -0.00043481,  0.99988337, -0.00039529]
+    - [ 0.0,         0.0,         0.0,         1.0]
+  cam_overlaps: []
+  camera_model: pinhole
+  distortion_model: equidistant
+  distortion_coeffs: [-0.0764245, 0.0322856, -0.0445168, 0.0163317]
+  intrinsics: [829.224, 829.454, 833.937, 562.509] #fu, fv, cu, cv
+  resolution: [1440, 1080]
+  rostopic: /camera/image_mono
+  timeshift_cam_imu: -0.0297405129318
+
+
+# Front camera. The dataset gives body_T_camFront (below) but publishes only ONE
+# set of intrinsics for Bell412, and does not say whether it belongs to the down
+# or the front camera. The values above are assumed to be the down camera, since
+# that is the one this config uses. Do not enable cam1 until you have calibrated
+# the front camera yourself from the "Front-facing Camera (Intrinsics)" dataset.
+#
+# cam1:
+#   T_imu_cam:
+#     - [-0.04200713, -0.01166497,  0.99904921,  0.17666233]
+#     - [ 0.99899047,  0.01544242,  0.04218496, -0.05171531]
+#     - [-0.01591983,  0.99981271,  0.01100451, -0.04656282]
+#     - [ 0.0,         0.0,         0.0,         1.0]
+#   camera_model: pinhole
+#   distortion_model: equidistant
+#   distortion_coeffs: [?, ?, ?, ?]
+#   intrinsics: [?, ?, ?, ?]
+#   resolution: [1440, 1080]
+#   rostopic: /front_camera/image_mono

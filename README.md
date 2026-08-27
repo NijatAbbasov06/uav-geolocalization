@@ -18,7 +18,7 @@ Everything is constrained to run in real time on **CPU only** — no GPU on the 
 |---|---|---|
 | **CAEVL** | Self-supervised geo-localization. Matches a UAV frame against a satellite tile database and returns an absolute position. | [`caevl`](https://github.com/NijatAbbasov06/caevl) |
 | **OpenVINS** | MSCKF visual-inertial odometry. Provides smooth, high-rate relative motion. | [`open_vins`](https://github.com/NijatAbbasov06/open_vins) (branch `alto_integration`) |
-| **Fusion** | Loosely-coupled filter consuming VIO deltas + gated CAEVL fixes. | *in progress* |
+| **Fusion** | Consensus outlier rejection + causal similarity-transform estimator. | [`tools/fuse.py`](tools/fuse.py) |
 
 The two are complementary: VIO is locally accurate but drifts; geo-localization is globally
 correct but noisy and intermittent. Fusion keeps the strengths of each.
@@ -100,6 +100,89 @@ the single most important design constraint on the fusion layer.
 
 ---
 
+## End-to-end result — MUN-FRL `bell412_dataset4`
+
+ALTO ships no IMU, so the full system could not run on it. The pipeline was moved to
+[MUN-FRL](https://mun-frl-vil-dataset.readthedocs.io/), the only public aerial dataset found
+that provides a downward camera, a hardware-synchronised IMU **and** RTK ground truth.
+`bell412_dataset4` is 3.6 km over 319 s, flown from a Bell 412 over Ottawa International
+Airport.
+
+| | OpenVINS | Fused | |
+|---|---|---|---|
+| **Causal (real-time)** RMSE | 617 m | **392 m** | −36% |
+| Offline, whole flight | 452 m | 314 m | −31% |
+| Offline, cruise only | 166 m | **48 m** | −71% |
+
+Both trajectories anchored at takeoff. The causal estimator uses only information available
+at each instant; the offline figures are an upper bound, reported separately rather than
+conflated.
+
+### Consensus outlier rejection
+
+The prediction stream is 82% wrong, and — as the ALTO work already showed — the retrieval
+score cannot identify which. Measured over two flights it is *slightly negatively*
+correlated with correctness (0.9429 when right, 0.9493 when wrong).
+
+Incorrect predictions scatter roughly uniformly over the tile database, so two of them
+agreeing — after accounting for the VIO displacement between their timestamps — is very
+unlikely. Screening a sliding window with RANSAC on that basis:
+
+| | before | after |
+|---|---|---|
+| predictions | 299 | 101 |
+| precision | 17.7% | **99.0%** |
+| correct predictions retained | 107 | 100 (93%) |
+
+This never consults the retrieval score or the filter's own belief, so it avoids the
+divergence mode in which a drifted filter rejects exactly the measurements that would fix it.
+
+### Search restriction
+
+Restricting the tile database to a corridor around positions where queries exist — in
+deployment, the uncertainty region defined by the motion prior — cuts it from 5340 to 1612
+tiles and doubles recall. 83% of erroneous predictions were matching tiles that could never
+have been correct.
+
+| configuration | tiles | R@100 m | median err | ms/query |
+|---|---|---|---|---|
+| 100 m tile, 400 m corridor | 5340 | 17.7% | 406 m | 229 |
+| 100 m tile, 200 m corridor | 1612 | **35.8%** | **230 m** | 233 |
+| 60 m tile, 200 m corridor | 3270 | 13.6% | 476 m | 235 |
+
+Shrinking tiles to 60 m to admit lower-altitude frames **fails**: 2.21% of tile pairs then
+exceed 0.99 cosine similarity against 0.31% at 100 m, so distinct places become
+indistinguishable. Runtime is flat across a 3.3× database range — the cost is encoding the
+query, not searching the map.
+
+### Terrain dependence
+
+Same aircraft, same airport, same weights: `dataset3` scores 8.9% R@100 m against
+`dataset4`'s 17.7%. `dataset3` loops over continuous forest; `dataset4` crosses the terminal
+apron and taxiways. Over uniform canopy every Canny edge map looks alike.
+
+### A bug in the dataset
+
+MUN-FRL's shipped map metadata places the flight **456 m** from where it actually occurred.
+A bounds check cannot catch it — the track still lands inside the image — but every extracted
+tile then depicts different ground than it claims. `tools/munfrl_map_tiles.py` detects and
+corrects this automatically by fitting the ground-truth track onto the flight path the
+dataset authors drew on each map (residual 0.35 px).
+
+### Limitations
+
+- **Altitude coverage is the binding constraint.** A 100 m tile needs ~66 m of altitude to be
+  fully imaged; only 34% of this flight is above that. The profile is takeoff, ~70 s of
+  cruise at 105 m, descent, then 80 s at ~11 m where the camera sees 17 m of ground. No
+  map-matching method can localise from that.
+- **Two quantities come from ground truth**: query altitude, and the VIO-to-map yaw offset.
+  In deployment these come from an altimeter and a magnetometer or first fix; MUN-FRL records
+  neither. The VIO's own altitude is not a substitute (median error 29.8 m).
+- Fusion evaluated on one flight, retrieval on two.
+- The VIO's ~40% scale deficit is unexplained; IMU restamping did not remove it.
+
+---
+
 ## VIO baseline
 
 **EuRoC MH_01_easy** — validated end to end, evaluated with `ov_eval` after `posyaw`
@@ -118,8 +201,19 @@ profile is ongoing work.
 
 ## Repository layout
 
-This repo is the front door. The code lives in two forks, kept separate so that the diff
-against each upstream project stays visible and attribution is preserved:
+This repo holds the report, the fusion and data-preparation tools, and the figures. The
+two upstream systems live in separate forks so that the diff against each stays visible and
+attribution is preserved.
+
+- **[`report/`](report/)** — IEEE-format write-up (`report.tex`, `references.bib`) and figures.
+- **[`tools/`](tools/)** — data preparation and fusion:
+  `restamp_imu.py` (IMU hardware-clock correction, jitter ↓37×),
+  `ppk_to_ovgt.py` (RTKLIB → ASL ground truth),
+  `fetch_basemap.py` (Esri imagery download + ENU→pixel solve),
+  `munfrl_map_tiles.py` (tile database, self-calibrating georeference),
+  `make_queries_oriented.py` (attitude-corrected ground-plane resampling),
+  `fuse.py` (consensus rejection + fusion; `--mode causal | align | ekf`).
+- **[`config/`](config/)** — OpenVINS configuration for MUN-FRL.
 
 - **[caevl](https://github.com/NijatAbbasov06/caevl)** — training configs for every
   ablation, retrieval evaluation, interactive result explorers, `localizer.py` (CPU runtime

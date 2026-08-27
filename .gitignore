@@ -1,19 +1,25 @@
-# This repo is documentation only - no code, no data, no weights.
-# Keep it that way; the code lives in the two forks linked from the README.
 
-# Reports and presentations stay off GitHub.
+*.aux
+*.bag
+*.bbl
+*.bcf
+*.blg
+data/
+# Data / weights, in case anything is ever copied in here by accident.
+*.db3
+.DS_Store
+# Keep it that way; the code lives in the two forks linked from the README.
+*.key
+*.log
+*.npy
+*.npz
+*.out
 *.pdf
 *.pptx
-*.key
-
-# Data / weights, in case anything is ever copied in here by accident.
-data/
 *.pth
-*.npz
-*.npy
-*.bag
-*.db3
-
+*.pyc
 __pycache__/
+# Reports and presentations stay off GitHub.
+*.run.xml
+# This repo is documentation only - no code, no data, no weights.
 .vscode/
-.DS_Store

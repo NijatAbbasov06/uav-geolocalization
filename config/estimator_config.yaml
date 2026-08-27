@@ -1,0 +1,164 @@
+%YAML:1.0 # need to specify the file type at the top!
+
+# MUN-FRL Bell412 aerial sequences (helicopter, nadir camera + Xsens IMU).
+# Sensor rates: /imu/data 400 Hz, /camera/image_mono 20 Hz.
+# Calibration: https://mun-frl-vil-dataset.readthedocs.io/en/latest/Calibration.html
+
+verbosity: "INFO" # ALL, DEBUG, INFO, WARNING, ERROR, SILENT
+
+use_fej: true # if first-estimate Jacobians should be used (enable for good consistency)
+integration: "rk4" # discrete, rk4, analytical
+use_stereo: false # MUN-FRL cameras are not a stereo pair (down + front)
+max_cameras: 1 # nadir/down camera only
+
+# Was true. At altitude the parallax is too weak for the camera-IMU mounting to
+# be observable, so the filter absorbed error into it instead: a run ended with
+# cam0 extrinsics drifted to 0.030,0.293,-0.034 and produced 231 m/s speeds and
+# -56 m altitudes. The dataset's Kalibr extrinsic is trustworthy and the authors
+# hold it fixed in their own VINS-Fusion config, so we do the same.
+calib_cam_extrinsics: false
+calib_cam_intrinsics: false # dataset intrinsics are Kalibr-grade; far-field aerial
+                            # scenes make focal length weakly observable, so leave off
+calib_cam_timeoffset: true # hardware-synced, but a small residual offset is possible
+calib_imu_intrinsics: false # dataset provides no IMU scale/misalignment matrices
+calib_imu_g_sensitivity: false # ditto (no Tg provided)
+
+# Monocular scale comes from parallax, and at altitude there is very little of
+# it: median ground speed is 13.5 m/s and the camera runs at 15 Hz, so
+# consecutive frames are only ~0.9 m apart while the terrain is 40-150 m away.
+# 11 clones spans 0.73 s (~9.8 m of baseline); 20 spans 1.3 s (~18 m), which
+# roughly doubles the parallax available for triangulation. Per-frame cost was
+# 0.008 s against a 0.067 s budget, so there is room for the longer window.
+max_clones: 20
+max_slam: 50
+max_slam_in_update: 25
+max_msckf_in_update: 10
+dt_slam_delay: 2
+
+gravity_mag: 9.803 # from the dataset's IMU parameters (Ottawa)
+
+# GLOBAL_3D (copied from the alto config) stores each landmark as x,y,z in the
+# global frame. For a point 150 m away seen with only ~4 deg of parallax the
+# depth uncertainty is huge and very non-Gaussian in xyz, which is exactly the
+# assumption an EKF relies on - the result was a uniform 0.76 scale factor with
+# otherwise correct trajectory shape. Inverse depth keeps that uncertainty
+# near-Gaussian out to large ranges. Every OpenVINS config for a large-scale
+# outdoor dataset (kaist, kaist_vio, rpng_ironsides) uses this instead.
+feat_rep_msckf: "ANCHORED_MSCKF_INVERSE_DEPTH"
+feat_rep_slam: "ANCHORED_MSCKF_INVERSE_DEPTH"
+feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
+
+# zero velocity update parameters
+# a helicopter in forward flight is never stationary mid-sequence
+try_zupt: false
+zupt_chi2_multipler: 1
+zupt_max_velocity: 0.1
+zupt_noise_multiplier: 1
+zupt_max_disparity: 0
+zupt_only_at_beginning: false
+
+# ==================================================================
+# ==================================================================
+
+init_window_time: 2.0
+init_imu_thresh: 1.0
+init_max_disparity: 1.5
+init_max_features: 15
+
+init_dyn_use: true # dynamic init — the aircraft is already moving when the bag starts
+init_dyn_mle_opt_calib: false
+init_dyn_mle_max_iter: 50
+init_dyn_mle_max_time: 0.5
+init_dyn_mle_max_threads: 6
+init_dyn_num_pose: 6
+init_dyn_min_deg: 15.0
+
+init_dyn_inflation_ori: 10
+init_dyn_inflation_vel: 100
+init_dyn_inflation_bg: 10
+init_dyn_inflation_ba: 100
+init_dyn_min_rec_cond: 1e-15
+
+init_dyn_bias_g: [0.0, 0.0, 0.0]
+init_dyn_bias_a: [0.0, 0.0, 0.0]
+
+# ==================================================================
+# ==================================================================
+
+record_timing_information: false
+record_timing_filepath: "/tmp/traj_timing.txt"
+
+# save_total_state writes the estimated trajectory to filepath_est, which is
+# what tools/align_gt.py reads to solve for the position+yaw transform between
+# the OpenVINS frame and ENU.
+save_total_state: true
+filepath_est: "/home/aze-pc-0329/workspace/munfrl/logs/ov_estimate.txt"
+filepath_std: "/home/aze-pc-0329/workspace/munfrl/logs/ov_estimate_std.txt"
+filepath_gt: "/home/aze-pc-0329/workspace/munfrl/logs/ov_groundtruth.txt"
+
+# ==================================================================
+# ==================================================================
+
+# front-end feature tracking
+use_klt: true
+# num_pts is the cap on simultaneously tracked features. 300 costs little here
+# (17 ms median per frame against a 67 ms budget at 250) and more independent
+# bearing measurements average down the pixel noise.
+num_pts: 300
+# FAST corner strength. Aerial terrain is far lower contrast than the indoor
+# scenes the default was tuned on, so 15 starves detection over fields and
+# forest; 10 keeps the detector finding structure away from roads and roofs.
+fast_threshold: 10
+grid_x: 20
+grid_y: 20
+# min_px_dist is the occupancy-grid cell size in TrackKLT.cpp:401 - features
+# landing in an already-occupied cell are discarded. At 1440x1080 a 30 px cell
+# still leaves 1728 slots, far above num_pts, so raising it from 15 costs no
+# features at all; it only stops all 300 from bunching into 3.6% of the frame.
+# Spread matters because near-parallel bearing vectors cannot separate rotation
+# from sideways translation. The dataset authors use 30 for the same reason.
+min_px_dist: 30
+knn_ratio: 0.70
+track_frequency: 20.0 # camera runs at 20 Hz
+downsample_cameras: false # set true to halve 1440x1080 -> 720x540 if CPU-bound;
+                          # OpenVINS rescales intrinsics automatically
+num_opencv_threads: 4
+histogram_method: "CLAHE" # NONE, HISTOGRAM, CLAHE
+
+# aruco tag tracker (unused here)
+use_aruco: false
+num_aruco: 1024
+downsize_aruco: true
+
+# feature triangulation limits (ov_core/src/feat/FeatureInitializerOptions.h)
+# The defaults (max_dist 60 m, max_baseline 40) are tuned for indoor/handheld
+# data. This aircraft flies at a median 36.5 m and a maximum 153.4 m above its
+# start, so with max_dist=60 every ground feature in the upper half of the
+# flight is discarded, the filter stops getting visual updates, and the accel
+# bias walks off (observed: ba saturating at -1.69 m/s^2 and freezing, with the
+# estimated path 14.7 km against a true 4.3 km).
+fi_max_dist: 500
+fi_max_baseline: 200
+# Triangulation is ill-conditioned at low parallax; the default 10000 rejects
+# solutions that are still usable at these ranges. kaist (outdoor driving) uses
+# 20000 for the same reason.
+fi_max_cond_number: 20000
+
+# ==================================================================
+# ==================================================================
+
+# camera noises and chi-squared threshold multipliers
+# Assumed feature measurement noise. 1 px understates it for a vibrating
+# airframe, and over-trusting vision is what lets a badly-conditioned depth
+# estimate pull the metric scale away from what the IMU says. kaist uses 1.5.
+up_msckf_sigma_px: 1.5
+up_msckf_chi2_multipler: 1
+up_slam_sigma_px: 1.5
+up_slam_chi2_multipler: 1
+up_aruco_sigma_px: 1
+up_aruco_chi2_multipler: 1
+
+use_mask: false
+
+relative_config_imu: "kalibr_imu_chain.yaml"
+relative_config_imucam: "kalibr_imucam_chain.yaml"
