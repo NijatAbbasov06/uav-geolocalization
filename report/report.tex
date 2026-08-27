@@ -17,6 +17,8 @@ Aerial Geo-Localization for GNSS-Denied UAV Navigation}
 \author{Nijat Abbasov}
 \date{\today}
 
+\raggedbottom
+
 \begin{document}
 \maketitle
 
@@ -344,28 +346,20 @@ canopy and ploughed farmland respectively.
 The dataset authors drew the true flight path onto each map in green, which
 permits automatic recovery: we fit the scale and offset that place the known
 ground-truth track onto that drawn curve, scoring candidates by mean distance to
-the curve under a distance transform. The fit converges to 0.35\,px (0.28\,m),
+the curve under a distance transform. Isolating that curve is exact rather than
+approximate, since the satellite imagery is monochrome and only the annotation
+carries colour. The fit converges to 0.35\,px (0.28\,m),
 confirming that the published scale (1.26\,px/m) is correct and that only the
 offsets are wrong, by 378\,m east and 256\,m north.
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\linewidth]{figures/munfrl_pairs.png}
+\includegraphics[width=0.7\textwidth]{figures/munfrl_pairs.png}
 \caption{The symptom that exposed the georeferencing error. Columns: query,
 query Canny edges, nearest reference tile, tile Canny edges. The second row
 pairs dense forest canopy with ploughed farmland despite the two being nominally
 6\,m apart --- a difference no season or year could explain.}
 \label{fig:pairs}
-\end{figure}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.9\textwidth]{figures/green_mask.png}
-\caption{The flight path the dataset authors drew onto the map, isolated by
-saturation thresholding. The satellite imagery is monochrome and only the
-annotation carries colour, so the separation is exact. The small mark at right
-is a map-service pin, removed by taking the largest connected component.}
-\label{fig:greenmask}
 \end{figure*}
 
 \begin{figure*}[t]
