@@ -226,6 +226,25 @@ prevent the trivial solution in which all descriptors collapse to a constant.
 Because the objective needs no negative pairs, no correspondence information is
 required.
 
+Written out, the VICReg objective over a batch of embeddings $Z, Z'$ from the
+clean and degraded views is
+\begin{equation}
+\mathcal{L} = \lambda\, s(Z, Z') + \mu\left[v(Z) + v(Z')\right]
+            + \nu\left[c(Z) + c(Z')\right]
+\end{equation}
+where $s$ is the mean squared distance between paired embeddings, $v$ is a
+hinge on the per-dimension standard deviation,
+\begin{equation}
+v(Z) = \frac{1}{d}\sum_{j=1}^{d} \max\!\left(0,\ \gamma - \sqrt{\operatorname{Var}(Z_{:,j}) + \epsilon}\right)
+\end{equation}
+and $c$ penalises the off-diagonal entries of the embedding covariance. The
+variance term is the component that matters most for this application: without
+it the invariance term alone is minimised by mapping every tile to the same
+descriptor. That failure mode is not hypothetical --- Section~\ref{sec:tilesize}
+shows descriptors collapsing toward one another whenever the tile footprint is
+too small to contain distinguishing structure, which is precisely the condition
+$v$ is designed to resist during training.
+
 At inference the database descriptors are precomputed; a query costs one forward
 pass and a nearest-neighbour search.
 
@@ -331,12 +350,32 @@ offsets are wrong, by 378\,m east and 256\,m north.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\linewidth]{figures/track_on_map.png}
+\includegraphics[width=\linewidth]{figures/munfrl_pairs.png}
+\caption{The symptom that exposed the georeferencing error. Columns: query,
+query Canny edges, nearest reference tile, tile Canny edges. The second row
+pairs dense forest canopy with ploughed farmland despite the two being nominally
+6\,m apart --- a difference no season or year could explain.}
+\label{fig:pairs}
+\end{figure}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/green_mask.png}
+\caption{The flight path the dataset authors drew onto the map, isolated by
+saturation thresholding. The satellite imagery is monochrome and only the
+annotation carries colour, so the separation is exact. The small mark at right
+is a map-service pin, removed by taking the largest connected component.}
+\label{fig:greenmask}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/track_on_map.png}
 \caption{Georeferencing error in the shipped map metadata. Red: the flight track
 projected using the published parameters. Dark curve: the true path, drawn onto
 the map by the dataset authors. The two differ by 456\,m.}
 \label{fig:trackmap}
-\end{figure}
+\end{figure*}
 
 \subsection{Reference Imagery}
 
@@ -347,6 +386,16 @@ match to, and their resolution (0.79\,m/px) is coarser than the queries, so
 tiles are upsampled. Inpainting the painted path removes the false edge but
 leaves a smear across 23\% of each tile.
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\linewidth]{figures/munfrl_clean.png}
+\caption{Query (left) against a tile from the shipped map after the painted
+flight path has been inpainted (right). The ground now corresponds correctly,
+but the repaired band consumes 23\% of the tile width and is smooth where the
+terrain was textured.}
+\label{fig:inpaint}
+\end{figure}
+
 We therefore download Esri World Imagery \cite{esri2026} at zoom level 19
 (0.21\,m/px) over the flight area, 2116 tiles totalling 6.75\,km$^2$. The
 mapping from the local ENU frame to map pixels is obtained by least squares
@@ -354,6 +403,16 @@ against the PPK latitudes and longitudes, giving a residual of 0.30\,px
 (0.06\,m). As an independent check that the two files describe the same flight,
 the PPK solution leads the bag timestamps by exactly 18.00\,s --- the GPS-to-UTC
 leap second count for 2022 --- with identical durations.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/coverage_dataset4.png}
+\caption{Left: the fetched basemap (yellow, 6.75\,km$^2$) against the tiles
+actually cut from it. Right: how the database shrinks as the corridor narrows,
+from 5340 tiles at 400\,m to 1186 at 100\,m. The download size is irrelevant to
+retrieval; only the tiled corridor supplies candidates.}
+\label{fig:coverage}
+\end{figure*}
 
 \subsection{Query Generation}
 
@@ -385,9 +444,27 @@ architecture: the VIO supplies attitude, and geo-localization supplies position.
 
 \subsection{VIO Characterisation}
 
-OpenVINS runs monocular with the nadir camera only. Online camera and IMU
-intrinsic calibration is disabled, since the dataset provides Kalibr-grade
-values and this sequence does not excite all calibration states.
+OpenVINS runs monocular with the nadir camera only; the forward camera is
+ignored, since MUN-FRL publishes a single set of intrinsics and does not state
+which camera they belong to. First-estimate Jacobians are enabled, which
+evaluates Jacobians at the linearisation point at which a state first entered
+the filter and preserves the observability properties that would otherwise be
+corrupted by relinearisation.
+
+Online camera and IMU intrinsic calibration is disabled. The dataset provides
+Kalibr-grade values, and enabling online calibration on a trajectory that does
+not excite every calibration state allows those states to drift into the
+unobservable subspace --- a failure we confirmed on an earlier, near-straight
+sequence where 86\% of image pairs were classified as planar by structure-from-
+motion, leaving focal length unrecoverable. The camera--IMU time offset is left
+free, and converges to $-28.5$\,ms against the $-29.7$\,ms published by the
+dataset's own Kalibr calibration, which is a useful independent check that the
+configuration is correct.
+
+The IMU noise parameters are taken from the dataset. Gravity magnitude is set
+to $9.803\,\mathrm{m/s^2}$; the value appropriate to Ottawa's latitude is
+$9.8063\,\mathrm{m/s^2}$, and this discrepancy is among the candidate
+explanations for the residual scale deficit discussed below.
 
 Anchored on the first 20\,s of flight --- the information a real system has, since
 the takeoff position is known --- the estimate begins 14.7\,m from truth and
@@ -400,15 +477,26 @@ accumulated random walk. The cause was not identified: it survived the IMU
 restamping described above, and the estimated accelerometer bias
 ($0.22\,\mathrm{m/s^2}$ horizontal) is large but not obviously anomalous.
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\linewidth]{figures/vio_anchoring_dataset4.png}
+\includegraphics[width=0.9\textwidth]{figures/vio_anchoring_dataset4.png}
 \caption{OpenVINS anchored at takeoff (orange) starts on the truth and drifts to
 700\,m. A best-fit placement over the whole flight (dashed) distributes the same
 error differently, and is the reason a naive plot can appear to show an
 initialisation failure where none exists.}
 \label{fig:anchor}
-\end{figure}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/vio_dataset4.png}
+\caption{OpenVINS against ground truth. The yaw-aligned estimate (red) is a
+visibly shrunken copy of the truth; correcting scale by $1.67$ (blue) recovers
+the trajectory shape. The right panel shows that even after scale correction the
+error oscillates between 35\,m and 360\,m rather than accumulating monotonically,
+indicating orientation error in addition to scale.}
+\label{fig:vioscale}
+\end{figure*}
 
 \subsection{The Retrieval Score Cannot Gate}
 \label{sec:score}
@@ -436,6 +524,16 @@ database, so the probability that two independent errors land near the same
 place --- after accounting for the VIO displacement between their timestamps ---
 is well below 1\%. Mutual agreement is therefore strong evidence of correctness,
 and it is available without reference to any filter state.
+
+The argument can be made quantitative. For a database of $N$ tiles spread over
+an area $A$, an incorrect prediction is approximately uniform over that area, so
+two independent errors agreeing to within a radius $\tau$ occurs with
+probability of order $\pi\tau^2 / A$. For the configuration used here
+($N = 1612$, $A \approx 1.1\,\mathrm{km}^2$, $\tau = 40$\,m) this is
+approximately $0.5\%$. Correct predictions, by contrast, agree by construction.
+Requiring $m$ mutually consistent predictions therefore suppresses outliers
+roughly as $(\pi\tau^2/A)^{m-1}$ while retaining inliers almost unchanged, which
+is why a modest $m$ suffices.
 
 Within a sliding window of predictions, RANSAC \cite{fischler1981ransac}
 hypothesises a similarity transform from two predictions and their corresponding
@@ -483,14 +581,14 @@ Correct predictions retained & 107 & 100 (93\%) \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\linewidth]{figures/consensus_filter.png}
+\includegraphics[width=0.9\textwidth]{figures/consensus_filter.png}
 \caption{Consensus rejection. Left: all predictions, green correct, red
 incorrect. Right: after filtering. Precision rises from 17.7\% to 99.0\% while
 93\% of correct predictions survive.}
 \label{fig:consensus}
-\end{figure}
+\end{figure*}
 
 Because the test never consults the filter's belief, it cannot suffer the
 divergence mode described next.
@@ -563,6 +661,17 @@ position to absorb nearly the whole innovation, leaving $s$ to converge far too
 slowly. The batch estimator instead examines a whole window jointly, which is
 materially easier when even the filtered predictions contain outliers.
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/fused_dataset4.png}
+\caption{The extended Kalman filter failing. Left: the fused track (magenta)
+against truth, with accepted predictions in orange clustered entirely in the
+first part of the flight. Centre: fused error tracks the VIO baseline in shape
+rather than being corrected. Right: the scale estimate advances for 120\,s and
+then freezes permanently as the gate closes.}
+\label{fig:ekffail}
+\end{figure*}
+
 The EKF is retained in the implementation for reproducibility.
 
 \section{Results}
@@ -604,9 +713,28 @@ plotted at the aircraft's true position.}
 \label{fig:q200}
 \end{figure}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/caevl_predictions_dataset4.png}
+\caption{Every prediction plotted explicitly. Left: predictions (orange) over
+the candidate tiles (faint white) and the true path (green); predictions can
+only ever fall on tile centres. Right: each prediction joined to the aircraft's
+true position for that frame, green where correct and red where not. The long
+red lines run predominantly \emph{along} the route rather than away from it.}
+\label{fig:preds}
+\end{figure*}
+
 Runtime is unaffected by database size (229--235\,ms across a 3.3$\times$
 range), confirming that cost is dominated by encoding the query rather than
 searching the map. Reducing the database further will not accelerate the system.
+
+A subtlety worth recording is that restricting the corridor does not remove all
+error. Of the 246 incorrect predictions, 52 lie \emph{within} 100\,m of the
+flight path yet carry a median true error of 398\,m, with a worst case of
+2036\,m. These are along-track confusions: the retrieval matched a visually
+similar stretch of the same route. A corridor constrains distance to the path as
+a curve, not position along it, so this class of error survives any corridor
+width and must be removed by the temporal consensus test instead.
 
 \subsection{Tile Size}
 \label{sec:tilesize}
@@ -639,14 +767,45 @@ controlled comparison across two flights, it supports a general statement:
 retrieval performance is governed by scene distinctiveness rather than by
 altitude or database size.
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\linewidth]{figures/caevl_dataset4_map.png}
+\includegraphics[width=0.9\textwidth]{figures/dataset3_vs_dataset4_terrain.png}
+\caption{The two flights, drawn on their respective reference maps.
+\texttt{dataset3} (left) loops over a large area of continuous forest;
+\texttt{dataset4} (right) passes directly over the terminal apron, hangars and
+taxiways.}
+\label{fig:terrain}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/caevl_munfrl_map.png}
+\caption{Retrieval on \texttt{dataset3}. Correct predictions (green) occur
+almost exclusively on the northwestern leg near the airport buildings; the long
+southern arc over forest fails almost entirely. The right panel shows the
+incorrect predictions scattering across the whole database rather than
+near-missing.}
+\label{fig:ds3map}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/caevl_munfrl_error.png}
+\caption{Retrieval error against altitude on \texttt{dataset3}, and the error
+distribution. No clean monotonic relationship with altitude is present, which is
+what first indicated that scene content rather than scale was the governing
+factor.}
+\label{fig:ds3err}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/caevl_dataset4_map.png}
 \caption{Where retrieval succeeds. Green: correct within 100\,m. Red:
 incorrect. Successes concentrate on runway markings and the terminal apron; the
 featureless stretch between runways fails.}
 \label{fig:where}
-\end{figure}
+\end{figure*}
 
 \subsection{Fusion}
 
@@ -670,15 +829,15 @@ takeoff. The causal estimator uses only information available at each instant.}
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\linewidth]{figures/FINAL_causal_dataset4.png}
+\includegraphics[width=0.9\textwidth]{figures/FINAL_causal_dataset4.png}
 \caption{Causal fusion. Red: OpenVINS alone. Green: RTK ground truth. Magenta:
 fused. Yellow: CAEVL predictions. Grey band: before localisation is available.
 Gold band: while predictions arrive. Bottom right: the online scale estimate,
 which does not fully converge before predictions cease.}
 \label{fig:causal}
-\end{figure}
+\end{figure*}
 
 The gap between the causal and offline results is itself informative. The
 offline estimator may use predictions from $t = 152$\,s to correct the estimate
@@ -688,14 +847,47 @@ partial. With absolute fixes available across a larger fraction of the flight,
 scale would converge earlier and the causal result would approach the offline
 one --- which again points at coverage rather than at the estimator.
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\linewidth]{figures/FINAL_dataset4_q200.png}
+\includegraphics[width=0.9\textwidth]{figures/FINAL_dataset4_q200.png}
 \caption{Offline fusion with the altitude profile. The gold band marks where
 predictions are available; it coincides exactly with the portion of the flight
 above the altitude required to image a full tile (dashed line, 65.6\,m).}
 \label{fig:offline}
-\end{figure}
+\end{figure*}
+
+\section{Discussion}
+
+Three results in this report initially appeared to be separate problems, and all
+three reduced to the same cause.
+
+Retrieval was first suspected of being scale-limited, since CAEVL was trained at
+a 1438\,m tile footprint and applied at 100\,m. Stratifying recall by altitude
+did not support this: on \texttt{dataset3} the relationship with altitude is not
+monotonic (Fig.~\ref{fig:ds3err}), and the strongest predictor turned out to be
+whether the camera was over structure or over uniform terrain.
+
+The fusion was then suspected of being estimator-limited, since an EKF
+underperformed a batch transform fit. That gap is real, but both estimators
+converge to similar behaviour once predictions cease, and the causal--offline gap
+is explained almost entirely by the scale estimate not having converged before
+the supply of predictions ended.
+
+Finally the causal result was suspected of being tuning-limited. Sweeping the
+consensus parameters over 64 configurations changed RMSE by at most 75\,m, an
+order of magnitude less than the difference between having predictions and not
+having them.
+
+In every case the binding constraint was the same: for 66\% of this flight the
+aircraft is too low for a map tile to be imaged at all, so no absolute
+information exists to be fused. This has a practical implication for deployment
+that is worth stating plainly --- for a system of this type, \emph{flight
+planning is part of the estimator}. An operator who needs bounded position error
+must budget time at an altitude where the camera can see enough ground to
+localise, in the same way they would budget fuel. The results here suggest that
+even a modest fraction of the flight spent above that threshold is sufficient to
+recover the similarity transform, after which the correction persists through
+subsequent low-altitude segments, degrading only as the VIO drifts afresh.
 
 \section{Limitations}
 \label{sec:limits}
