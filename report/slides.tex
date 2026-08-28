@@ -49,18 +49,18 @@ CPU only --- no GPU on the airframe}
 \toprule
  & OpenVINS & Fused \\
 \midrule
-Real-time RMSE & 540\,m & \textbf{347\,m} \\
-Offline, cruise & 166\,m & \textbf{48\,m} \\
+Real-time RMSE & 489\,m & \textbf{248\,m} \\
+Best run & 464\,m & \textbf{198\,m} \\
 \bottomrule
 \end{tabular}
 
 \vspace{2em}
-{\large $-36\%$}\\[0.2em]
-{\small real-time}
+{\large $-49\%$}\\[0.2em]
+{\small mean of three runs}
 
 \vspace{1em}
-{\large $-71\%$}\\[0.2em]
-{\small where fixes exist}
+{\large $-57\%$}\\[0.2em]
+{\small best run}
 \end{column}
 \end{columns}
 \end{frame}
@@ -252,7 +252,7 @@ certain when most wrong.}
 
 \vspace{-0.3em}
 {\small Red: OpenVINS. Green: RTK truth. Magenta: fused. Grey: dead reckoning
-before handover at $t{+}73$\,s.\quad\textbf{540\,m $\rightarrow$ 347\,m}}
+before handover at $t{+}73$\,s.\quad\textbf{464\,m $\rightarrow$ 198\,m}}
 \end{frame}
 
 \begin{frame}{Summary}
@@ -261,23 +261,23 @@ before handover at $t{+}73$\,s.\quad\textbf{540\,m $\rightarrow$ 347\,m}}
 \toprule
  & OpenVINS & \textbf{$+$ Geo-loc} & Improvement \\
 \midrule
-Translation RMSE  & 540.5\,m & \textbf{346.8\,m} & $-36\%$ \\
-Median error      & 570.9\,m & \textbf{255.4\,m} & $-55\%$ \\
-Final error       & 699.9\,m & \textbf{514.7\,m} & $-26\%$ \\
-Trajectory drift  & 19.41\%  & \textbf{14.27\%}  & $-26\%$ \\
+Translation RMSE  & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & $-49\%$ \\
+\quad best run    & 463.8\,m & \textbf{198.2\,m} & $-57\%$ \\
+Trajectory drift  & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & $-43\%$ \\
+Peak RAM          & 366\,MB & $+$2.08\,GB (CAEVL) & --- \\
 \midrule
 Orientation RMSE  & \multicolumn{3}{c}{\emph{not measurable --- ground truth carries no attitude}} \\
 \midrule
 Output rate       & 20\,Hz & 20\,Hz & unchanged \\
-VIO runtime       & 13.7\,ms/frame & 13.7\,ms/frame & unchanged \\
-Retrieval runtime & --- & 233\,ms/query (4.3\,Hz) & added \\
-CPU usage         & \multicolumn{3}{c}{\emph{not yet measured}} \\
+VIO runtime       & 14.1\,ms/frame & 14.1\,ms/frame & 28\% duty cycle \\
+Retrieval runtime & --- & 233\,ms/query (4.3\,Hz) & 1715\% CPU, 20 threads \\
 \bottomrule
 \end{tabular}
 
 \vspace{1.2em}
-{\small 3.6\,km over 301\,s. Both trajectories anchored at takeoff; the causal
-estimator uses only information available at each instant.}
+{\small 3.6\,km over 301\,s, mean of three OpenVINS runs on identical inputs.
+Both trajectories anchored at takeoff; the causal estimator uses only
+information available at each instant.}
 \end{frame}
 
 \begin{frame}{Limitations and next steps}
@@ -302,7 +302,9 @@ estimator uses only information available at each instant.}
       {\small one database at the lowest operating altitude; rescale queries down to it}
 \item \textbf{Retrain CAEVL at a 100\,m footprint}\\
       {\small currently trained at 1438\,m --- a $14.4\times$ gap}
-\item Resolve the VIO scale deficit
+\item Resolve the VIO scale deficit\\
+      {\small also the source of run-to-run spread: 540 vs 464\,m from
+      identical inputs}
 \end{enumerate}
 
 \vspace{1.5em}

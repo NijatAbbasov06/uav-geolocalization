@@ -40,7 +40,8 @@ outliers by mutual consensus among predictions that are nearby in time, using
 the VIO as the motion model; this raises precision from 17.7\% to 99.0\% while
 retaining 93\% of the correct predictions. A causal similarity-transform
 estimator then fuses the survivors with the VIO, reducing position RMSE from
-540\,m to 347\,m (36\%) using only information available at each instant; an
+489\,m to 248\,m (49\%, mean of three runs) using only information available at
+each instant; an
 offline variant reaches 48\,m during cruise. We further report and automatically
 correct a 456\,m georeferencing error in the map metadata shipped with MUN-FRL,
 and we characterise the principal limitation: geo-localization is physically
@@ -818,8 +819,9 @@ takeoff. The causal estimator uses only information available at each instant.}
  & OpenVINS & Fused & Reduction \\
 \midrule
 \textbf{Causal (real-time)} & & & \\
-\quad RMSE & 540\,m & \textbf{347\,m} & 36\% \\
-\quad Final error & 658\,m & 515\,m & 22\% \\
+\quad RMSE & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & 49\% \\
+\quad Trajectory drift & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & 43\% \\
+\quad Best run & 463.8\,m & \textbf{198.2\,m} & 57\% \\
 \midrule
 \textbf{Offline (upper bound)} & & & \\
 \quad RMSE, whole flight & 452\,m & 314\,m & 31\% \\
@@ -843,6 +845,49 @@ Because the estimator dead-reckons before handover, a position is available for
 100\% of the flight rather than only after localisation; the two regimes are
 distinguished in Fig.~\ref{fig:causal} rather than the early period being
 omitted.
+
+\subsection{Run-to-run Variance}
+
+OpenVINS is run three times on identical inputs. Its dynamic initialiser begins
+from an assumed zero bias and solves a nonlinear problem over the first window
+of data, so the result is not deterministic:
+
+\begin{table}[H]
+\centering
+\caption{Three OpenVINS runs, identical configuration and data.}
+\label{tab:variance}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & VIO RMSE & Fused RMSE & Reduction & Scale \\
+\midrule
+run 1 & 540.5\,m & 346.8\,m & 36\% & 1.522 \\
+run 2 & 463.7\,m & 199.0\,m & 57\% & 1.299 \\
+run 3 & 463.8\,m & 198.2\,m & 57\% & 1.297 \\
+\midrule
+mean  & $489.3$ & $248.0$ & 49\% & 1.373 \\
+s.d.  & $44.3$  & $85.6$  & --- & 0.130 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Runs 2 and 3 agree to within 0.1\,m and 0.002 in scale; run 1 is a clear
+outlier. This is not broad stochastic noise but a small number of distinct
+initialisation outcomes, of which run 1 caught a worse one. The spread matters
+because it is comparable to the improvement the fusion provides, so any
+single-run figure should be read with that in mind.
+
+The variance also propagates: a better-conditioned VIO improves the fusion more
+than proportionally, because the consensus test uses VIO motion to decide which
+predictions agree. Run 3's fused error is 43\% lower than run 1's while its VIO
+error is only 14\% lower.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/run_variance.png}
+\caption{Three OpenVINS runs on identical inputs. Runs 2 and 3 are nearly
+indistinguishable; run 1 initialised into a worse basin.}
+\label{fig:variance}
+\end{figure*}
 
 The gap between the causal and offline results is itself informative. The
 offline estimator may use predictions from $t = 152$\,s to correct the estimate
@@ -930,7 +975,8 @@ noise parameters and the assumed gravity magnitude.
 We have demonstrated a CPU-only pipeline that bounds VIO drift using
 self-supervised aerial geo-localization requiring no paired training data,
 evaluated on real flight data with centimetre-accurate ground truth. In real
-time, position RMSE falls from 540\,m to 347\,m; where absolute fixes are
+time, position RMSE falls from 489\,m to 248\,m (mean of three runs); where
+absolute fixes are
 available, offline error falls from 166\,m to 48\,m.
 
 The principal finding is methodological. With an inlier rate below 20\% and a
