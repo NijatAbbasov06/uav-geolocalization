@@ -864,6 +864,17 @@ Runtime is also insensitive to database size, varying only between 229 and
 235\,ms across a 3.3$\times$ range of tile counts, which confirms that the cost
 is encoding the query rather than searching the map.
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.87\textwidth]{figures/compute_cost.png}
+\caption{Measured computational cost. Motion tracking needs less than one
+processor core and runs 3.5 times faster than the camera requires; map matching
+needs roughly seventeen. On a single core the latter would produce one fix every
+four seconds, which is still useful because fixes are consumed only
+occasionally.}
+\label{fig:cost}
+\end{figure*}
+
 \begin{table}[H]
 \centering
 \caption{Measured resource cost. Percentages are of a single core.}

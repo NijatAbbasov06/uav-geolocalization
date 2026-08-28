@@ -141,69 +141,47 @@ Zurich MAV & 5--15\,m & too low \\
 \end{columns}
 \end{frame}
 
-\begin{frame}{The confidence score is worse than useless}
+\begin{frame}{Which predictions can we trust?}
 \begin{columns}[T]
-\begin{column}{0.42\textwidth}
+\begin{column}{0.4\textwidth}
+Only \textbf{36\%} of matches are right --- and the network's own confidence is
+\emph{higher when it is wrong}:
+
+\vspace{0.5em}
 \centering
 \begin{tabular}{@{}lcc@{}}
 \toprule
-mean score & correct & wrong \\
+confidence & correct & wrong \\
 \midrule
-dataset4 & 0.9429 & \textbf{0.9493} \\
-dataset3 & 0.9447 & \textbf{0.9598} \\
+flight 1 & 0.9429 & \textbf{0.9493} \\
+flight 2 & 0.9447 & \textbf{0.9598} \\
 \bottomrule
 \end{tabular}
 
-\vspace{1.2em}
+\vspace{1em}
 \raggedright
-\textbf{Anti-correlated}, on two independent flights.
+\textbf{So we ignore confidence entirely.}
 
-\vspace{1em}
-Featureless tiles give near-identical descriptors $\Rightarrow$ confidence peaks
-where tiles are \emph{least} distinguishable.
+\vspace{0.7em}
+Instead: keep only matches that \textbf{agree with each other}, once you account
+for how far the aircraft moved between them.
 
-\vspace{1em}
-$\Rightarrow$ \textbf{reject on geometry, not score}
-\end{column}
-\begin{column}{0.56\textwidth}
-\centering
-\includegraphics[width=\linewidth]{figures/caevl_dataset4_map.png}
-
-\vspace{0.3em}
-{\small Green $=$ correct. Structure works; open ground does not.}
-\end{column}
-\end{columns}
-\end{frame}
-
-\begin{frame}{Consensus outlier rejection}
-\begin{columns}[T]
-\begin{column}{0.4\textwidth}
-Wrong predictions scatter uniformly. Two agreeing --- after removing the VIO
-motion between them:
-\[
-\sim\frac{\pi\tau^{2}}{A}\approx 0.5\%
-\]
-Correct ones agree \textbf{by construction}.
-
-\vspace{1em}
-RANSAC over a sliding window; keep the largest consistent set.
-
-\vspace{1em}
-Uses \textbf{neither the score nor the filter's belief} $\Rightarrow$ cannot
-lock itself out.
+\vspace{0.5em}
+{\small Wrong matches land in random places --- two agreeing is a $0.5\%$
+coincidence. Right ones agree automatically.}
 \end{column}
 \begin{column}{0.58\textwidth}
 \centering
 \includegraphics[width=\linewidth]{figures/consensus_filter.png}
 
-\vspace{0.5em}
+\vspace{0.4em}
 \begin{tabular}{@{}lcc@{}}
 \toprule
  & before & after \\
 \midrule
-predictions & 299 & 101 \\
-precision & 17.7\% & \textbf{99.0\%} \\
-correct kept & 107 & 100 \textbf{(93\%)} \\
+matches & 299 & 101 \\
+\% correct & 17.7\% & \textbf{99.0\%} \\
+good ones kept & 107 & 100 \textbf{(93\%)} \\
 \bottomrule
 \end{tabular}
 \end{column}
@@ -255,29 +233,47 @@ certain when most wrong.}
 before handover at $t{+}73$\,s.\quad\textbf{464\,m $\rightarrow$ 198\,m}}
 \end{frame}
 
-\begin{frame}{Summary}
+\begin{frame}{Summary --- accuracy}
 \centering
 \begin{tabular}{@{}lccc@{}}
 \toprule
- & OpenVINS & \textbf{$+$ Geo-loc} & Improvement \\
+ & OpenVINS alone & \textbf{$+$ Geo-loc} & Improvement \\
 \midrule
-Translation RMSE  & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & $-49\%$ \\
-\quad best run    & 463.8\,m & \textbf{198.2\,m} & $-57\%$ \\
-Trajectory drift  & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & $-43\%$ \\
+Position error (RMSE) & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & $-49\%$ \\
+\quad best run        & 463.8\,m & \textbf{198.2\,m} & $-57\%$ \\
+Drift over the flight & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & $-43\%$ \\
 \midrule
-Orientation RMSE  & \multicolumn{3}{c}{\emph{not measurable --- ground truth carries no attitude}} \\
-\midrule
-Output rate       & 20\,Hz & 20\,Hz & unchanged \\
-VIO runtime       & 14.1\,ms/frame & 14.1\,ms/frame & 28\% duty cycle \\
-VIO CPU / RAM     & 60\% / 315\,MB & 60\% / 315\,MB & unchanged \\
-Retrieval         & --- & 233\,ms, 1715\% CPU, 2.08\,GB & added \\
+Heading error & \multicolumn{3}{c}{\emph{cannot be measured --- this dataset has no reference heading}} \\
 \bottomrule
 \end{tabular}
 
 \vspace{1.2em}
-{\small 3.6\,km over 301\,s, mean of three OpenVINS runs on identical inputs.
-Both trajectories anchored at takeoff; the causal estimator uses only
-information available at each instant.}
+{\small Drift is the final position error as a fraction of distance flown:
+\textbf{after 3.6\,km the aircraft ends up 10\% of that distance away from where
+it really is}, instead of 18\%.}
+
+\vspace{0.8em}
+{\small Mean of three OpenVINS runs on identical inputs. Both trajectories start
+from the known takeoff point; the system uses only information available at the
+time.}
+\end{frame}
+
+\begin{frame}{Summary --- can it run on the aircraft?}
+\centering
+\includegraphics[width=\linewidth]{figures/compute_cost.png}
+
+\vspace{0.6em}
+\begin{columns}
+\begin{column}{0.46\textwidth}
+\textbf{Motion tracking} is cheap\\
+{\small under one core, 0.3\,GB, and 3.5$\times$ faster than the camera needs}
+\end{column}
+\begin{column}{0.5\textwidth}
+\textbf{Map matching} is the expensive part\\
+{\small 17 cores here. On a single core it would give one fix every
+4\,s --- still useful, since fixes are only needed occasionally.}
+\end{column}
+\end{columns}
 \end{frame}
 
 \begin{frame}{Limitations and next steps}
