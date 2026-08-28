@@ -12,160 +12,77 @@
 \usepackage[style=ieee, backend=biber]{biblatex}
 \addbibresource{references.bib}
 
+\raggedbottom
+
+% allow denser float packing - this report is figure-heavy by design
+\setcounter{topnumber}{4}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.85}
+
 \title{Bounding Visual-Inertial Odometry Drift with Self-Supervised\\
 Aerial Geo-Localization for GNSS-Denied UAV Navigation}
 \author{Nijat Abbasov}
 \date{\today}
 
-\raggedbottom
-
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Visual-inertial odometry (VIO) provides smooth, locally accurate motion
-estimates but drifts without bound, while image-based geo-localization against
-satellite imagery provides absolute position that never drifts but succeeds only
-intermittently. This report presents a CPU-only system that combines the two for
-GNSS-denied navigation: OpenVINS supplies the trajectory shape, and CAEVL --- a
-self-supervised geo-localization network trained on reference imagery alone ---
-supplies absolute position. We first reproduce CAEVL on the ViLD benchmark
-(48.14\% R@1 against 49.68\% reported) and show that a DINOv2 perceptual loss
-adds 4.7 points, then transfer the model zero-shot to two further datasets. On
-the MUN-FRL \texttt{bell412\_dataset4} sequence (3.6\,km, 319\,s, Ottawa
-International Airport) raw retrieval is correct for only 35.8\% of queries, and
-we show that its confidence score is \emph{negatively} correlated with
-correctness, so individual predictions cannot be trusted. We therefore reject
-outliers by mutual consensus among predictions that are nearby in time, using
-the VIO as the motion model; this raises precision from 17.7\% to 99.0\% while
-retaining 93\% of the correct predictions. A causal similarity-transform
-estimator then fuses the survivors with the VIO, reducing position RMSE from
-489\,m to 248\,m (49\%, mean of three runs) using only information available at
-each instant; an
-offline variant reaches 48\,m during cruise. We further report and automatically
-correct a 456\,m georeferencing error in the map metadata shipped with MUN-FRL,
-and we characterise the principal limitation: geo-localization is physically
-available only during the 34\% of this flight flown above 66\,m, because below
-that altitude the camera cannot image a full map tile.
+Visual-inertial odometry (VIO) is locally accurate but drifts without bound;
+image retrieval against satellite imagery is absolute but succeeds only
+intermittently. We combine the two on CPU for GNSS-denied navigation, using
+OpenVINS for motion and CAEVL --- trained on reference imagery alone --- for
+absolute position. On MUN-FRL \texttt{bell412\_dataset4} (3.6\,km, Ottawa
+International Airport) only 36\% of retrievals are correct, and we show over two
+flights that the retrieval score is \emph{negatively} correlated with
+correctness, so predictions cannot be gated individually. Rejecting outliers by
+mutual consensus through the motion prior instead raises precision from 17.7\%
+to 99.0\% while keeping 93\% of correct predictions. A causal
+similarity-transform estimator then reduces position RMSE from $489\pm44$\,m to
+$248\pm86$\,m (49\%, three runs) using only information available at each
+instant. We also detect and automatically correct a 456\,m georeferencing error
+in the dataset's shipped map metadata, and identify the binding limitation:
+retrieval is physically possible only during the 34\% of this flight above
+66\,m, since below that the camera cannot image a full map tile.
 \end{abstract}
 
 \section{Introduction}
 
-Unmanned aerial vehicles operating without GNSS must estimate their position
-from onboard sensors alone. Visual-inertial odometry is the standard solution
-and is accurate over short horizons, but because it integrates motion it
-accumulates error without limit. Over the flight studied here OpenVINS
-\cite{geneva2020openvins} drifts to 700\,m over 3.6\,km, approximately 19\% of
-distance flown --- for a vehicle expected to navigate tens of kilometres this is
-disqualifying.
+A UAV without GNSS must localise from onboard sensors. VIO integrates motion, so
+its error grows without limit --- here OpenVINS \cite{geneva2020openvins} drifts
+to 700\,m over 3.6\,km, 19\% of distance flown. Matching the downward camera
+against georeferenced satellite imagery gives absolute position that never
+drifts, but fails often: terrain must be distinctive, the aircraft high enough
+to image useful ground, and the reference imagery is months or years old.
 
-Absolute position can be recovered by matching the downward-facing camera image
-against georeferenced satellite imagery held onboard. Such a fix does not drift,
-because each match is independent of every previous one. But it fails
-frequently: the terrain must be distinctive enough to identify, the aircraft
-must be high enough to image a meaningful patch of ground, and the reference
-imagery is necessarily captured at a different time of year, under different
-illumination, and with a different sensor.
+The two are complementary, which motivates fusion. The difficulty --- and the
+substance of this work --- is that the retrieval output is dominated by outliers
+and its confidence score cannot identify them. The contribution is therefore
+about \emph{which measurements to believe}, using the motion prior rather than
+appearance.
 
-The two error characteristics are complementary --- one is smooth but unbounded,
-the other bounded but unreliable --- which motivates fusing them. The difficulty
-we encountered, and which came to dominate the work, is that the
-geo-localization output is overwhelmingly composed of outliers, and the
-retrieval confidence score cannot be used to identify them. The contribution of
-this report is therefore less about the estimator that consumes the measurements
-than about \emph{deciding which measurements to believe}, using the motion prior
-rather than the appearance score.
+We use CAEVL \cite{caevl2025}, which trains on reference imagery alone: no
+paired UAV-satellite examples, no correspondences. It operates on Canny edge
+maps \cite{canny1986} to suppress the domain gap, via an autoencoder with a
+DINOv2 \cite{oquab2024dinov2} perceptual loss followed by VICReg
+\cite{bardes2022vicreg} fine-tuning on synthetically degraded copies. Deploying
+over new terrain needs only satellite tiles.
 
-The complete system is constrained to run on CPU, since the target airframe
-carries no GPU. Retrieval costs 233\,ms per query and VIO runs at 20\,Hz, so
-absolute fixes arrive at roughly 4\,Hz while the fused position is published at
-the VIO rate.
+Everything runs on CPU: OpenVINS at 20\,Hz, retrieval at 4.3\,Hz.
 
-Our contributions are:
-\begin{itemize}
-\item A reproduction of CAEVL \cite{caevl2025} and an ablation isolating the
-      contribution of its DINOv2 perceptual loss, with zero-shot transfer to two
-      unseen datasets.
-\item The observation, measured over two independent flights, that retrieval
-      similarity is \emph{anti}-correlated with correctness, with a mechanism
-      (descriptor collapse) demonstrated experimentally.
-\item A consensus-based outlier rejection stage that raises precision from
-      17.7\% to 99.0\% using only the motion prior, and which structurally
-      cannot suffer the divergence mode that afflicts belief-based gating.
-\item A strictly causal fusion estimator, evaluated against both an offline
-      upper bound and an extended Kalman filter baseline.
-\item Detection and automatic correction of a 456\,m georeferencing error in a
-      public dataset.
-\end{itemize}
+\section{Dataset Selection}
 
-\section{Related Work}
-
-\subsection{Visual-Inertial Odometry}
-
-Filter-based VIO propagates an inertial state and corrects it with visual
-observations. OpenVINS \cite{geneva2020openvins} implements the multi-state
-constraint Kalman filter, maintaining a sliding window of past poses and
-marginalising landmarks rather than retaining a map. This bounds computation but
-means there is no loop closure: revisiting a location does not correct
-accumulated error. Optimisation-based alternatives retain a factor graph and can
-close loops, but only against places the vehicle has itself visited, which does
-not help on a single-pass transit.
-
-Because the scale of monocular vision is recovered from inertial integration,
-VIO error is not purely random walk; a systematic scale bias produces error
-growing linearly with distance, which we observe here.
-
-\subsection{Aerial Visual Geo-Localization}
-
-Matching a downward aerial view to a georeferenced map removes drift entirely.
-The central difficulty is the domain gap: the query is a photograph taken now
-with one sensor, the reference is imagery captured months or years earlier with
-another. Approaches divide broadly into those that learn a shared embedding from
-paired UAV-to-satellite examples, and those that first project both into a
-domain-invariant representation.
-
-CAEVL \cite{caevl2025} belongs to the second family and is the method used here.
-It reduces both modalities to Canny edge maps \cite{canny1986}, discarding
-colour, illumination and seasonal appearance while retaining roads, field
-boundaries and building outlines. Critically it trains on \emph{reference
-imagery alone}: an autoencoder stage optionally supervised by a DINOv2
-\cite{oquab2024dinov2} perceptual loss, followed by VICReg
-\cite{bardes2022vicreg} fine-tuning against synthetically degraded copies of the
-same tiles. No paired data and no ground-truth correspondences are required,
-which matters operationally --- deploying over new terrain requires only
-satellite tiles for the area.
-
-A recurring difficulty in this literature is scale. Query footprint scales with
-altitude while the reference database is built at a fixed scale, so a mismatch
-degrades retrieval sharply. Shao et al.\ \cite{shao2026altitude} address this by
-estimating altitude from the image itself in the frequency domain and rescaling
-each query to a canonical database altitude, reporting a 41.5-point R@1
-improvement. Their design constraint --- that the canonical altitude must lie at
-or below the minimum operating altitude, since a query can be cropped down but
-never extended --- is directly relevant to the limitation we report in
-Section~\ref{sec:limits}.
-
-\subsection{Fusing Relative and Absolute Estimates}
-
-Combining odometry with intermittent absolute fixes is classically handled by a
-Kalman filter with innovation gating: a measurement is accepted if its
-discrepancy from the prediction is small relative to the predicted covariance.
-This works when outliers are a minority and the covariance is well calibrated.
-Neither holds here. With an inlier rate below 20\%, and with VIO error growing
-linearly rather than as a random walk, the filter becomes overconfident and
-rejects the correct measurements --- a failure mode we reproduce and quantify in
-Section~\ref{sec:ekf}.
-
-\subsection{Datasets}
-
-The system requires a downward camera, a synchronised IMU, ground truth accurate
-enough to evaluate metre-level error, and enough distance for drift to matter.
-Surprisingly few datasets provide all four (Table~\ref{tab:datasets}).
+The system needs a downward camera, a synchronised IMU, metric ground truth and
+enough distance for drift to matter. Few datasets provide all four
+(Table~\ref{tab:datasets}).
 
 \begin{table}[H]
 \centering
-\caption{Candidate datasets. Only MUN-FRL provides raw IMU alongside a nadir
-camera and metric ground truth.}
+\caption{Only MUN-FRL provides raw IMU with a nadir camera and metric truth.}
 \label{tab:datasets}
 \begin{tabular}{@{}llcl@{}}
 \toprule
@@ -181,378 +98,176 @@ Zurich Urban MAV                  & 5--15\,m    & yes & too low \\
 \end{tabular}
 \end{table}
 
-The scarcity is structural rather than accidental. VIO requires parallax, which
-degrades as altitude rises and the base-to-height ratio falls; geo-localization
-requires a large ground footprint, which requires altitude. The two halves of
-the problem want opposite flight profiles, so dataset authors optimise for one
-or the other. MUN-FRL sits nearest the compromise, and this same tension
-reappears in our results as the dominant limitation.
+The scarcity is structural: VIO needs parallax, which favours low flight;
+retrieval needs ground footprint, which favours high. Dataset authors optimise
+for one. This tension reappears below as the dominant limitation.
 
-\section{System Overview}
+We use \texttt{bell412\_dataset4}: 3.6\,km over 319\,s from a Bell 412 over
+Ottawa International Airport --- nadir FLIR camera ($1440\times1080$, 20\,Hz),
+Xsens MTi-30 IMU at 400\,Hz, hardware-synchronised, RTK ground truth at 5\,Hz.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=\linewidth]{figures/esri_vs_munfrl.png}
-\caption{Query, fetched Esri tile, their Canny edge maps, and the corresponding
-tile from the map shipped with the dataset. The fetched imagery yields 12.97\%
-edge density against the camera's 16.75\%, compared with 5.38\% for the shipped
-map.}
-\label{fig:esri}
-\end{figure}
+\section{Data Preparation}
 
-The pipeline has four stages. Offline, satellite imagery for the operating area
-is downloaded and cut into a tile database, and each tile is encoded once into a
-1024-dimensional descriptor. Online, each camera frame is resampled onto the
-ground plane using the VIO attitude, encoded, and matched against the database
-by cosine similarity to yield a candidate absolute position. Candidates are then
-screened by mutual consensus, and the survivors drive a similarity transform
-that maps the VIO trajectory into the map frame.
+\subsection{IMU Timestamps}
 
-\section{Geo-Localization}
+Recorded IMU timestamps are driver \emph{receipt} times: mean interval
+2500.9\,\textmu s (correct for 400\,Hz) but standard deviation
+2538\,\textmu s, with gaps from 25\,\textmu s to 19\,ms. Since VIO integrates
+over time, this corrupts propagation. The dataset publishes the sensor's
+hardware clock on a separate topic in 1:1 correspondence; fitting an affine map
+and restamping reduces the interval standard deviation to 68.5\,\textmu s, a
+factor of 37, with no samples dropped.
 
-\subsection{Method}
+\subsection{A 456\,m Georeferencing Error}
 
-CAEVL encodes a $256\times256$ Canny edge map into a 1024-dimensional
-descriptor. Training proceeds in two stages, both using reference imagery only.
-
-\textbf{Stage 1} trains an autoencoder to reconstruct the edge map from the
-descriptor, forcing the bottleneck to retain structural content. Reconstruction
-may be supervised by an L2 loss alone, or additionally by a perceptual loss
-computed in DINOv2 feature space, which penalises perceptual rather than
-pixel-wise discrepancy.
-
-\textbf{Stage 2} discards the decoder and fine-tunes the encoder with VICReg on
-pairs consisting of a clean tile and a synthetically degraded copy of the same
-tile (vignetting, blur, brightness and contrast perturbation). VICReg's
-invariance term pulls the pair together, while its variance and covariance terms
-prevent the trivial solution in which all descriptors collapse to a constant.
-Because the objective needs no negative pairs, no correspondence information is
-required.
-
-Written out, the VICReg objective over a batch of embeddings $Z, Z'$ from the
-clean and degraded views is
-\begin{equation}
-\mathcal{L} = \lambda\, s(Z, Z') + \mu\left[v(Z) + v(Z')\right]
-            + \nu\left[c(Z) + c(Z')\right]
-\end{equation}
-where $s$ is the mean squared distance between paired embeddings, $v$ is a
-hinge on the per-dimension standard deviation,
-\begin{equation}
-v(Z) = \frac{1}{d}\sum_{j=1}^{d} \max\!\left(0,\ \gamma - \sqrt{\operatorname{Var}(Z_{:,j}) + \epsilon}\right)
-\end{equation}
-and $c$ penalises the off-diagonal entries of the embedding covariance. The
-variance term is the component that matters most for this application: without
-it the invariance term alone is minimised by mapping every tile to the same
-descriptor. That failure mode is not hypothetical --- Section~\ref{sec:tilesize}
-shows descriptors collapsing toward one another whenever the tile footprint is
-too small to contain distinguishing structure, which is precisely the condition
-$v$ is designed to resist during training.
-
-At inference the database descriptors are precomputed; a query costs one forward
-pass and a nearest-neighbour search.
-
-\subsection{Reproduction and Ablation}
-
-Before applying the method we reproduced it on ViLD, the benchmark reported in
-the original work, using the held-out test split of flight 10.
-
-\begin{table}[H]
-\centering
-\caption{CAEVL reproduction on ViLD flight 10, held-out test split.}
-\label{tab:vild}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-Configuration & R@1 @100\,m & R@20 @100\,m \\
-\midrule
-Reported \cite{caevl2025} & 49.68\% & --- \\
-Our reproduction & 48.14\% & 90.64\% \\
-\quad + DINOv2 perceptual loss & \textbf{52.88\%} & \textbf{93.78\%} \\
-Trained on both flights & 42.45\% & 90.20\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The baseline reproduces the published figure to within 1.5 points, validating
-the implementation. The perceptual loss is worth $+4.7$ points, confirming the
-direction of the original ablation, which reports a larger $+8.2$.
-
-Training on both available ViLD flights \emph{degraded} performance by 5.7
-points relative to training on flight 10 alone. Since the two flights differ in
-altitude and therefore in ground sample distance, this is independent evidence
-that the descriptor is sensitive to scale --- a theme that recurs throughout this
-work.
-
-\subsection{Zero-Shot Transfer}
-
-The ViLD-trained encoder was applied to ALTO without fine-tuning.
-
-\begin{table}[H]
-\centering
-\caption{Zero-shot transfer to ALTO. No ALTO imagery was seen in training.}
-\label{tab:alto}
-\begin{tabular}{@{}lccc@{}}
-\toprule
-Configuration & R@1 @50\,m & R@1 @100\,m & R@20 @100\,m \\
-\midrule
-Zero-shot & 55.46\% & 62.05\% & 75.89\% \\
-\quad + perceptual & 55.34\% & 65.80\% & 77.55\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-More than half of queries localise within 50\,m on terrain the model has never
-seen, which is the property that makes the self-supervised formulation
-attractive. However R@20 plateaus near 78\%: roughly a fifth of queries are
-never retrieved at any depth. Since training a stronger model moved this ceiling
-by only 1.5 points, the cause is not model capacity but the scale gap --- ViLD
-tiles cover a 1438\,m footprint against ALTO's 304\,m, a factor of 4.7.
-
-End-to-end runtime on ALTO was 13.3\,Hz on CPU, verified with
-\texttt{CUDA\_VISIBLE\_DEVICES=""}.
-
-\section{Dataset and Data Preparation}
-
-ALTO ships no IMU, so the complete system cannot run on it; only the retrieval
-half can be evaluated. We therefore moved to MUN-FRL
-\cite{thalagala2024munfrl}, using \texttt{bell412\_dataset4}: 3.6\,km over
-319\,s from a Bell 412 helicopter over Ottawa International Airport, with a
-nadir FLIR camera ($1440\times1080$, 20\,Hz), an Xsens MTi-30 IMU at 400\,Hz,
-hardware-synchronised, and post-processed kinematic RTK ground truth at 5\,Hz.
-
-\subsection{IMU Timestamp Correction}
-
-The IMU timestamps recorded in the bag are driver \emph{receipt} times, not
-sampling times. Measured inter-sample intervals had a mean of 2500.9\,\textmu s
---- the correct 400\,Hz rate --- but a standard deviation of 2538\,\textmu s,
-with gaps ranging from 25\,\textmu s to 19\,ms. Since VIO integrates
-acceleration over time, irregular intervals corrupt the propagation.
-
-The dataset publishes the sensor's own hardware clock on a separate topic in
-exact 1:1 correspondence with the IMU messages. Fitting an affine map from
-hardware to ROS time and restamping reduced the interval standard deviation from
-2538\,\textmu s to 68.5\,\textmu s, a factor of 37, with no samples dropped.
-
-\subsection{A Georeferencing Error in the Shipped Map}
-\label{sec:georef}
-
-MUN-FRL ships one map image per sequence with the georeferencing encoded in the
-filename. Projecting the ground-truth track into map pixels using those
-parameters places it approximately 456\,m from where the flight actually
-occurred (Fig.~\ref{fig:trackmap}). The error is invisible to a bounds check ---
-the track still lands inside the image --- but every extracted tile then depicts
-different ground than it claims, which silently destroys retrieval. Before this
-was found, query and reference tiles nominally 6\,m apart showed dense forest
-canopy and ploughed farmland respectively.
-
-The dataset authors drew the true flight path onto each map in green, which
-permits automatic recovery: we fit the scale and offset that place the known
-ground-truth track onto that drawn curve, scoring candidates by mean distance to
-the curve under a distance transform. Isolating that curve is exact rather than
-approximate, since the satellite imagery is monochrome and only the annotation
-carries colour. The fit converges to 0.35\,px (0.28\,m),
-confirming that the published scale (1.26\,px/m) is correct and that only the
-offsets are wrong, by 378\,m east and 256\,m north.
+MUN-FRL encodes each map's georeferencing in its filename. Projecting the truth
+track with those parameters places it \textbf{456\,m} from the actual flight
+(Fig.~\ref{fig:trackmap}). A bounds check cannot catch this --- the track still
+lands inside the image --- yet every tile then depicts different ground than it
+claims. Before this was found, query and reference tiles nominally 6\,m apart
+showed forest canopy and ploughed farmland respectively
+(Fig.~\ref{fig:pairs}).
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.7\textwidth]{figures/munfrl_pairs.png}
-\caption{The symptom that exposed the georeferencing error. Columns: query,
-query Canny edges, nearest reference tile, tile Canny edges. The second row
-pairs dense forest canopy with ploughed farmland despite the two being nominally
-6\,m apart --- a difference no season or year could explain.}
+\includegraphics[width=0.62\textwidth]{figures/munfrl_pairs.png}
+\caption{The symptom. Columns: query, query Canny edges, nearest reference tile,
+tile edges. Row two pairs forest with farmland despite a nominal 6\,m
+separation.}
 \label{fig:pairs}
 \end{figure*}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/track_on_map.png}
-\caption{Georeferencing error in the shipped map metadata. Red: the flight track
-projected using the published parameters. Dark curve: the true path, drawn onto
-the map by the dataset authors. The two differ by 456\,m.}
+\includegraphics[width=0.62\textwidth]{figures/track_on_map.png}
+\caption{Red: the track projected with the published parameters. Dark curve: the
+true path, drawn on the map by the dataset authors. The two differ by 456\,m.}
 \label{fig:trackmap}
 \end{figure*}
 
+The authors drew the true path on each map in green, permitting automatic
+recovery: we fit the scale and offset placing the known track onto that curve,
+scoring by mean distance under a distance transform. Isolation is exact, since
+the imagery is monochrome and only the annotation carries colour. The fit
+converges to \textbf{0.35\,px (0.28\,m)}, confirming the published scale is
+right and only the offsets are wrong --- by 378\,m east and 256\,m north.
+
 \subsection{Reference Imagery}
 
-The shipped maps remain unsuitable as a tile source even once correctly
-georeferenced, for two reasons: the painted flight path is 18.6\,m wide on the
-ground and therefore falls inside nearly every tile a query could correctly
-match to, and their resolution (0.79\,m/px) is coarser than the queries, so
-tiles are upsampled. Inpainting the painted path removes the false edge but
-leaves a smear across 23\% of each tile.
+The shipped maps remain unusable even once corrected: the painted path is
+18.6\,m wide and falls inside nearly every tile a query could match, and at
+0.79\,m/px they are coarser than the queries. Inpainting removes the false edge
+but smears 23\% of each tile.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.72\linewidth]{figures/munfrl_clean.png}
-\caption{Query (left) against a tile from the shipped map after the painted
-flight path has been inpainted (right). The ground now corresponds correctly,
-but the repaired band consumes 23\% of the tile width and is smooth where the
-terrain was textured.}
-\label{fig:inpaint}
-\end{figure}
-
-We therefore download Esri World Imagery \cite{esri2026} at zoom level 19
-(0.21\,m/px) over the flight area, 2116 tiles totalling 6.75\,km$^2$. The
-mapping from the local ENU frame to map pixels is obtained by least squares
-against the PPK latitudes and longitudes, giving a residual of 0.30\,px
-(0.06\,m). As an independent check that the two files describe the same flight,
-the PPK solution leads the bag timestamps by exactly 18.00\,s --- the GPS-to-UTC
-leap second count for 2022 --- with identical durations.
+We instead fetch Esri World Imagery \cite{esri2026} at zoom 19 (0.21\,m/px),
+2116 tiles over 6.75\,km$^2$ (Fig.~\ref{fig:coverage}). The ENU-to-pixel mapping
+is solved by least squares against the PPK latitudes and longitudes, residual
+\textbf{0.30\,px (0.06\,m)}. As an independent check, the PPK solution leads the
+bag by exactly 18.00\,s --- the 2022 GPS-UTC leap second count.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/coverage_dataset4.png}
-\caption{Left: the fetched basemap (yellow, 6.75\,km$^2$) against the tiles
-actually cut from it. Right: how the database shrinks as the corridor narrows,
-from 5340 tiles at 400\,m to 1186 at 100\,m. The download size is irrelevant to
-retrieval; only the tiled corridor supplies candidates.}
+\includegraphics[width=0.62\textwidth]{figures/coverage_dataset4.png}
+\caption{Left: fetched basemap (yellow) against the tiles cut from it. Right:
+database size versus corridor width, 5340 tiles at 400\,m down to 1186 at
+100\,m.}
 \label{fig:coverage}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.62\textwidth]{figures/esri_vs_munfrl.png}
+\caption{Query, fetched tile, their Canny edges, and the shipped-map tile. The
+fetched imagery gives 12.97\% edge density against the camera's 16.75\%,
+compared with 5.38\% for the shipped map.}
+\label{fig:esri}
 \end{figure*}
 
 \subsection{Query Generation}
 
-Map tiles cover a fixed ground extent, whereas a camera frame covers an area
-proportional to altitude, so the two correspond only after resampling. Rather
-than undistorting to a pinhole model, which would discard the outer field of
-view, each output pixel is treated as a point on the ground plane in ENU,
-rotated into the camera frame through the full VIO attitude and the Kalibr
-\cite{furgale2013kalibr} extrinsic, then projected through the equidistant
-distortion model:
+Tiles cover fixed ground; a frame covers area proportional to altitude. Each
+output pixel is treated as a ground-plane point in ENU, rotated through the full
+VIO attitude and the Kalibr \cite{furgale2013kalibr} extrinsic, then projected
+through the equidistant model:
 \begin{align}
 \bm{P}_{\text{enu}} &= (\text{east},\ \text{north},\ z_{\text{ground}} - z_{\text{cam}}) \\
-\bm{P}_{\text{imu}} &= \bm{R}_{G\rightarrow I}\, \bm{P}_{\text{enu}} \\
-\bm{P}_{\text{cam}} &= \bm{R}_{C\rightarrow I}^{\top} (\bm{P}_{\text{imu}} - \bm{p}_{C\ \text{in}\ I}) \\
+\bm{P}_{\text{cam}} &= \bm{R}_{C\rightarrow I}^{\top} (\bm{R}_{G\rightarrow I}\bm{P}_{\text{enu}} - \bm{p}_{C\ \text{in}\ I}) \\
 \bm{u} &= \pi_{\text{equi}}\!\left(\bm{P}_{\text{cam},xy} / \bm{P}_{\text{cam},z}\right)
 \end{align}
 
-Using the full attitude rather than assuming nadir matters: the aircraft banks
-through turns, and this sequence sweeps 11\,422$^\circ$ of heading in total. An
-earlier implementation that built the sampling grid in camera axes --- leaving
-each query rotated by the aircraft's heading while the tiles are north-up ---
-produced retrieval indistinguishable from chance.
+Full attitude matters: the aircraft banks, and this sequence sweeps
+11\,422$^\circ$ of heading. An earlier version building the grid in camera axes
+--- leaving queries rotated while tiles are north-up --- gave retrieval
+indistinguishable from chance. Attitude must come from the VIO, since the PPK
+solution is position-only.
 
-Attitude must come from the VIO, since the PPK solution provides position only;
-its quaternion field is an identity placeholder. This is also the correct
-architecture: the VIO supplies attitude, and geo-localization supplies position.
-
-\section{Fusion}
+\section{Method}
 
 \subsection{VIO Characterisation}
 
-OpenVINS runs monocular with the nadir camera only; the forward camera is
-ignored, since MUN-FRL publishes a single set of intrinsics and does not state
-which camera they belong to. First-estimate Jacobians are enabled, which
-evaluates Jacobians at the linearisation point at which a state first entered
-the filter and preserves the observability properties that would otherwise be
-corrupted by relinearisation.
+OpenVINS runs monocular on the nadir camera with online calibration disabled
+(the dataset supplies Kalibr values, and this trajectory does not excite every
+calibration state). The camera--IMU time offset is left free and converges to
+$-28.5$\,ms against the dataset's published $-29.7$\,ms, an independent check
+that the configuration is right.
 
-Online camera and IMU intrinsic calibration is disabled. The dataset provides
-Kalibr-grade values, and enabling online calibration on a trajectory that does
-not excite every calibration state allows those states to drift into the
-unobservable subspace --- a failure we confirmed on an earlier, near-straight
-sequence where 86\% of image pairs were classified as planar by structure-from-
-motion, leaving focal length unrecoverable. The camera--IMU time offset is left
-free, and converges to $-28.5$\,ms against the $-29.7$\,ms published by the
-dataset's own Kalibr calibration, which is a useful independent check that the
-configuration is correct.
-
-The IMU noise parameters are taken from the dataset. Gravity magnitude is set
-to $9.803\,\mathrm{m/s^2}$; the value appropriate to Ottawa's latitude is
-$9.8063\,\mathrm{m/s^2}$, and this discrepancy is among the candidate
-explanations for the residual scale deficit discussed below.
-
-Anchored on the first 20\,s of flight --- the information a real system has, since
-the takeoff position is known --- the estimate begins 14.7\,m from truth and
-drifts to 700\,m, approximately 19\% of distance flown (Fig.~\ref{fig:anchor}).
-Initialisation is therefore not the problem.
-
-A best-fit similarity transform reduces the error to 215\,m, indicating that the
-majority is a systematic scale deficit of approximately 40\% rather than
-accumulated random walk. The cause was not identified: it survived the IMU
-restamping described above, and the estimated accelerometer bias
-($0.22\,\mathrm{m/s^2}$ horizontal) is large but not obviously anomalous.
+Anchored on the first 20\,s --- what a real vehicle has, knowing its takeoff
+pose --- the estimate starts 14.7\,m from truth and drifts to 700\,m
+(Fig.~\ref{fig:anchor}). A best-fit similarity reduces this to 215\,m: most of
+the error is a systematic \textbf{40\% scale deficit}, not random walk. The
+cause was not identified, and survived IMU restamping.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/vio_anchoring_dataset4.png}
-\caption{OpenVINS anchored at takeoff (orange) starts on the truth and drifts to
-700\,m. A best-fit placement over the whole flight (dashed) distributes the same
-error differently, and is the reason a naive plot can appear to show an
-initialisation failure where none exists.}
+\includegraphics[width=0.62\textwidth]{figures/vio_anchoring_dataset4.png}
+\caption{Anchored at takeoff (orange), OpenVINS starts on the truth and drifts
+to 700\,m. A best-fit placement (dashed) distributes the same error
+differently.}
 \label{fig:anchor}
 \end{figure*}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/vio_dataset4.png}
-\caption{OpenVINS against ground truth. The yaw-aligned estimate (red) is a
-visibly shrunken copy of the truth; correcting scale by $1.67$ (blue) recovers
-the trajectory shape. The right panel shows that even after scale correction the
-error oscillates between 35\,m and 360\,m rather than accumulating monotonically,
-indicating orientation error in addition to scale.}
+\includegraphics[width=0.62\textwidth]{figures/vio_dataset4.png}
+\caption{The yaw-aligned estimate (red) is a shrunken copy of truth; scaling by
+1.67 (blue) recovers the shape. Even then the error oscillates between 35 and
+360\,m, indicating orientation error alongside scale.}
 \label{fig:vioscale}
 \end{figure*}
 
 \subsection{The Retrieval Score Cannot Gate}
-\label{sec:score}
 
-Measured over both available flights, the cosine similarity of the retrieved
-match is \emph{slightly negatively} correlated with correctness: on
-\texttt{dataset4} the mean score is 0.9429 for correct predictions and 0.9493
-for incorrect ones; on \texttt{dataset3}, 0.9447 against 0.9598. The same
-phenomenon appeared in the ALTO evaluation, where a prediction 23.7\,km in error
-scored 0.958.
+Over both flights, retrieval similarity is \emph{negatively} correlated with
+correctness: 0.9429 for correct predictions against 0.9493 for incorrect on
+\texttt{dataset4}, and 0.9447 against 0.9598 on \texttt{dataset3}. The
+tile-size ablation below explains the mechanism --- descriptor collapse makes
+confidence highest exactly where tiles are least distinguishable. No threshold
+on the score can separate inliers; rejection must be geometric.
 
-The mechanism is demonstrated by the tile-size ablation in
-Section~\ref{sec:tilesize}: reducing the tile footprint causes descriptors to
-collapse toward one another, and the retrieval score is then \emph{highest}
-precisely where tiles are least distinguishable. Confidence and confusability
-increase together.
+\subsection{Consensus Rejection}
 
-Consequently no threshold on the retrieval score can separate inliers from
-outliers, and rejection must rely on geometry instead.
-
-\subsection{Consensus-Based Outlier Rejection}
-
-Incorrect predictions are distributed approximately uniformly over the tile
-database, so the probability that two independent errors land near the same
-place --- after accounting for the VIO displacement between their timestamps ---
-is well below 1\%. Mutual agreement is therefore strong evidence of correctness,
-and it is available without reference to any filter state.
-
-The argument can be made quantitative. For a database of $N$ tiles spread over
-an area $A$, an incorrect prediction is approximately uniform over that area, so
-two independent errors agreeing to within a radius $\tau$ occurs with
-probability of order $\pi\tau^2 / A$. For the configuration used here
-($N = 1612$, $A \approx 1.1\,\mathrm{km}^2$, $\tau = 40$\,m) this is
-approximately $0.5\%$. Correct predictions, by contrast, agree by construction.
-Requiring $m$ mutually consistent predictions therefore suppresses outliers
-roughly as $(\pi\tau^2/A)^{m-1}$ while retaining inliers almost unchanged, which
-is why a modest $m$ suffices.
-
-Within a sliding window of predictions, RANSAC \cite{fischler1981ransac}
-hypothesises a similarity transform from two predictions and their corresponding
-VIO positions, and scores it by how many other predictions in the window it
-explains (Algorithm~\ref{alg:consensus}). Predictions belonging to the largest
-consistent set are retained.
+Incorrect predictions are near-uniform over the database, so two independent
+errors agreeing within $\tau$ --- after removing the VIO displacement between
+their timestamps --- occurs with probability of order $\pi\tau^2/A$, about
+0.5\% here ($N=1612$, $A\approx1.1$\,km$^2$, $\tau=40$\,m). Correct predictions
+agree by construction. Requiring $m$ mutually consistent predictions suppresses
+outliers as $(\pi\tau^2/A)^{m-1}$ while retaining inliers.
 
 \begin{algorithm}[H]
 \caption{Consensus outlier rejection}
 \label{alg:consensus}
 \begin{algorithmic}[1]
-\Require predictions $\{(t_i, \bm{f}_i)\}$, VIO positions $\bm{v}(t)$,
-         window $W$, threshold $\tau$, minimum support $m$
+\Require predictions $\{(t_i,\bm{f}_i)\}$, VIO $\bm{v}(t)$, window $W$,
+         threshold $\tau$, support $m$
 \State $\mathcal{K} \gets \emptyset$
 \ForAll{windows $\mathcal{W}$ of width $W$}
-  \State $\bm{v}_i \gets \bm{v}(t_i)$ for $i \in \mathcal{W}$
   \State $best \gets \emptyset$
   \For{$n$ iterations}
-    \State sample $i, j \in \mathcal{W}$
-    \State $s \gets \|\bm{f}_j - \bm{f}_i\| \,/\, \|\bm{v}_j - \bm{v}_i\|$
-    \State $\theta \gets \angle(\bm{f}_j - \bm{f}_i) - \angle(\bm{v}_j - \bm{v}_i)$
-    \State $\bm{t} \gets \bm{f}_i - s\bm{R}(\theta)\bm{v}_i$
-    \State $\mathcal{I} \gets \{k : \|s\bm{R}(\theta)\bm{v}_k + \bm{t} - \bm{f}_k\| < \tau\}$
-    \If{$|\mathcal{I}| > |best|$} \State $best \gets \mathcal{I}$ \EndIf
+    \State sample $i,j \in \mathcal{W}$; \ $s \gets \|\bm{f}_j-\bm{f}_i\|/\|\bm{v}_j-\bm{v}_i\|$
+    \State $\theta \gets \angle(\bm{f}_j-\bm{f}_i) - \angle(\bm{v}_j-\bm{v}_i)$;
+           \ $\bm{t} \gets \bm{f}_i - s\bm{R}(\theta)\bm{v}_i$
+    \State $\mathcal{I} \gets \{k: \|s\bm{R}(\theta)\bm{v}_k+\bm{t}-\bm{f}_k\|<\tau\}$
+    \If{$|\mathcal{I}|>|best|$} \State $best \gets \mathcal{I}$ \EndIf
   \EndFor
   \If{$|best| \geq m$} \State $\mathcal{K} \gets \mathcal{K} \cup best$ \EndIf
 \EndFor
@@ -560,142 +275,72 @@ consistent set are retained.
 \end{algorithmic}
 \end{algorithm}
 
-\begin{table}[H]
-\centering
-\caption{Consensus rejection on \texttt{bell412\_dataset4}.}
-\label{tab:consensus}
-\begin{tabular}{@{}lcc@{}}
-\toprule
- & Before & After \\
-\midrule
-Predictions & 299 & 101 \\
-Precision & 17.7\% & \textbf{99.0\%} \\
-Median error of retained & 230\,m & \textbf{17\,m} \\
-Correct predictions retained & 107 & 100 (93\%) \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/consensus_filter.png}
-\caption{Consensus rejection. Left: all predictions, green correct, red
-incorrect. Right: after filtering. Precision rises from 17.7\% to 99.0\% while
-93\% of correct predictions survive.}
+\includegraphics[width=0.62\textwidth]{figures/consensus_filter.png}
+\caption{Left: all predictions, green correct. Right: after consensus.
+Precision rises from 17.7\% to 99.0\% while 93\% of correct predictions
+survive.}
 \label{fig:consensus}
 \end{figure*}
 
-Because the test never consults the filter's belief, it cannot suffer the
-divergence mode described next.
-
 \subsection{Causal Fusion}
 
-The fused estimate is the VIO trajectory mapped into the map frame by a
-similarity transform $(s, \theta, \bm{t})$ estimated online from accepted
-predictions:
+The VIO is mapped into the map frame by a similarity transform estimated online:
 \begin{equation}
-\hat{\bm{p}}_k = s\, \bm{R}(\theta)\, \bm{p}^{\text{vio}}_k + \bm{t}
+\hat{\bm{p}}_k = s\,\bm{R}(\theta)\,\bm{p}^{\text{vio}}_k + \bm{t}
 \end{equation}
+Estimating $s$ and $\theta$ is essential: OpenVINS initialises with arbitrary
+heading, and its scale deficit would otherwise reappear between every pair of
+predictions.
 
-Estimating $s$ is essential rather than optional. OpenVINS initialises with an
-arbitrary heading, so $\theta$ is unknown by construction; and its 40\% scale
-deficit would otherwise reappear between every pair of accepted predictions.
+The estimator is strictly causal. Predictions enter a buffer as their timestamps
+elapse; a \emph{trailing} window is screened for consensus; survivors
+accumulate; the transform is refitted by Umeyama's method \cite{umeyama1991} to
+all accepted history. Before the transform is available the estimator
+dead-reckons on the VIO from the known takeoff pose --- a real vehicle has this
+from a survey or the last GNSS fix --- so a position is output at every instant.
+Handover occurs at $t+73$\,s.
 
-The estimator is strictly causal (Algorithm~\ref{alg:causal}). A prediction
-enters a buffer when its timestamp elapses; a \emph{trailing} window of that
-buffer is screened for consensus; survivors accumulate; and the transform is
-refitted by Umeyama's method \cite{umeyama1991} to all predictions accepted so
-far. Scale is observable only over long baselines, so the fit uses the full
-accepted history rather than a short window --- still causal, with growing
-memory. Until enough accepted predictions span 300\,m the geo-localization
-transform is not yet available. A navigation system must nonetheless output a
-position at every instant, so until handover the estimator dead-reckons on the
-VIO from the known takeoff pose --- position and heading that a real vehicle has
-from a survey or from the last GNSS fix before denial --- with scale held at
-unity, since the VIO's scale deficit is not knowable in advance. On this
-sequence handover occurs at $t+73$\,s, and a position is therefore available
-for 100\% of the flight.
-
-\begin{algorithm}[H]
-\caption{Causal fusion}
-\label{alg:causal}
-\begin{algorithmic}[1]
-\State $\mathcal{A} \gets \emptyset$, $T \gets \textsc{None}$
-\For{each VIO step $k$}
-  \State append any prediction with $t_i \leq t_k$ to buffer $\mathcal{B}$
-  \If{new predictions arrived}
-    \State $\mathcal{W} \gets \{i \in \mathcal{B} : t_i \geq t_k - W\}$
-      \Comment{trailing only}
-    \State $\mathcal{A} \gets \mathcal{A} \cup \textsc{Consensus}(\mathcal{W})$
-    \If{$\textsc{span}(\mathcal{A}) \geq d_{\min}$}
-      \State $T \gets \textsc{FitSimilarity}(\mathcal{A})$
-    \EndIf
-  \EndIf
-  \State \textbf{output} $T(\bm{p}^{\text{vio}}_k)$ if $T \neq \textsc{None}$
-\EndFor
-\end{algorithmic}
-\end{algorithm}
-
-\subsection{Comparison with an Extended Kalman Filter}
-\label{sec:ekf}
-
-An EKF over the state $(x, y, s, \theta)$ with chi-square innovation gating was
-implemented for comparison. It performs substantially worse: 422\,m against
-347\,m for the transform estimator, and worse than the VIO baseline under some
-tunings.
-
-Two mechanisms are responsible, and both are instructive.
-
-\textbf{Gate lockout.} A scale error makes position error grow \emph{linearly}
-with distance, whereas random-walk process noise grows only as its square root.
-The filter therefore becomes overconfident. Once the estimate has drifted a few
-hundred metres, a correct prediction arrives as a large innovation and is
-rejected --- the filter is most certain exactly when it is most wrong, and
-nothing can rescue it. We observed the scale estimate freezing entirely for the
-final 180\,s of flight. Adding covariance inflation after a period without
-accepted measurements reopened the gate but admitted outliers, one of which
-displaced the estimate by 2.4\,km.
-
-\textbf{Weak scale observability.} A per-prediction position update allows
-position to absorb nearly the whole innovation, leaving $s$ to converge far too
-slowly. The batch estimator instead examines a whole window jointly, which is
-materially easier when even the filtered predictions contain outliers.
+An EKF over $(x,y,s,\theta)$ with chi-square gating was tried first and performs
+worse (422\,m against 347\,m). Two reasons. \emph{Gate lockout}: a scale error
+makes position error grow linearly while random-walk noise grows as
+$\sqrt{\cdot}$, so the filter becomes overconfident and rejects correct
+predictions --- most certain when most wrong (Fig.~\ref{fig:ekffail}).
+\emph{Weak observability}: a per-prediction position update lets position absorb
+the innovation, leaving $s$ to converge too slowly.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/fused_dataset4.png}
-\caption{The extended Kalman filter failing. Left: the fused track (magenta)
-against truth, with accepted predictions in orange clustered entirely in the
-first part of the flight. Centre: fused error tracks the VIO baseline in shape
-rather than being corrected. Right: the scale estimate advances for 120\,s and
-then freezes permanently as the gate closes.}
+\includegraphics[width=0.62\textwidth]{figures/fused_dataset4.png}
+\caption{The EKF failing. Accepted predictions (orange) cluster early; the scale
+estimate advances for 120\,s then freezes permanently as the gate closes.}
 \label{fig:ekffail}
 \end{figure*}
 
-The EKF is retained in the implementation for reproducibility.
-
 \section{Results}
 
-\subsection{Retrieval and Search Restriction}
+\subsection{Retrieval}
 
-Reference tiles are cut at a 100\,m ground footprint with 25\,m spacing and
-encoded once offline. Restricting the tile database to a corridor around
-positions where queries exist --- rather than around the entire ground-truth
-track --- reduces it from 5340 to 1612 tiles and doubles recall
-(Table~\ref{tab:retrieval}, Fig.~\ref{fig:q200}). We measured that 83\% of
-erroneous predictions matched tiles more than 100\,m from any query position,
-i.e.\ tiles that could never have been correct. In deployment this restriction
-corresponds to searching within the uncertainty region defined by the motion
-prior, which is standard practice for place recognition with odometry.
+Restricting the database to a corridor around positions where queries exist ---
+in deployment, the motion prior's uncertainty region --- halves the tile count
+and doubles recall (Table~\ref{tab:retrieval},
+Fig.~\ref{fig:q200}). 83\% of erroneous predictions matched tiles that could
+never have been correct.
+
+Reducing tile size to 60\,m, to admit lower-altitude frames, \emph{degrades}
+performance: at 60\,m, 2.21\% of tile pairs exceed 0.99 similarity against
+0.31\% at 100\,m. Descriptors collapse, which also explains the anti-correlated
+confidence score. Runtime is flat across a 3.3$\times$ database range,
+confirming cost is query encoding rather than search.
 
 \begin{table}[H]
 \centering
-\caption{Retrieval on \texttt{bell412\_dataset4}. R@100\,m is the fraction of
-queries whose top-1 tile lies within 100\,m of the true position.}
+\caption{Retrieval on \texttt{bell412\_dataset4}.}
 \label{tab:retrieval}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-Configuration & Tiles & R@100\,m & Median err. & ms/query \\
+Configuration & Tiles & R@100\,m & Median & ms \\
 \midrule
 100\,m tile, 400\,m corridor & 5340 & 17.7\% & 406\,m & 229 \\
 100\,m tile, 200\,m corridor & 1612 & \textbf{35.8\%} & \textbf{230\,m} & 233 \\
@@ -704,106 +349,59 @@ Configuration & Tiles & R@100\,m & Median err. & ms/query \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=\linewidth]{figures/caevl_q200_compare.png}
-\caption{Effect of restricting the tile database. Left: 5340 tiles, 17.7\%
-correct. Right: 1612 tiles, 35.8\% correct. Green marks correct predictions,
-plotted at the aircraft's true position.}
-\label{fig:q200}
-\end{figure}
+A residual error class survives any corridor: 52 incorrect predictions lie
+within 100\,m of the path yet carry 398\,m median error, with a worst case of
+2036\,m. These are along-track confusions --- a corridor constrains distance to
+the path as a curve, not position along it --- and must be removed by the
+temporal consensus test instead.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/caevl_predictions_dataset4.png}
-\caption{Every prediction plotted explicitly. Left: predictions (orange) over
-the candidate tiles (faint white) and the true path (green); predictions can
-only ever fall on tile centres. Right: each prediction joined to the aircraft's
-true position for that frame, green where correct and red where not. The long
-red lines run predominantly \emph{along} the route rather than away from it.}
-\label{fig:preds}
+\includegraphics[width=0.62\textwidth]{figures/caevl_q200_compare.png}
+\caption{Restricting the database from 5340 to 1612 tiles doubles recall,
+17.7\% to 35.8\%.}
+\label{fig:q200}
 \end{figure*}
 
-Runtime is unaffected by database size (229--235\,ms across a 3.3$\times$
-range), confirming that cost is dominated by encoding the query rather than
-searching the map. Reducing the database further will not accelerate the system.
+\subsection{Terrain Governs Performance}
 
-A subtlety worth recording is that restricting the corridor does not remove all
-error. Of the 246 incorrect predictions, 52 lie \emph{within} 100\,m of the
-flight path yet carry a median true error of 398\,m, with a worst case of
-2036\,m. These are along-track confusions: the retrieval matched a visually
-similar stretch of the same route. A corridor constrains distance to the path as
-a curve, not position along it, so this class of error survives any corridor
-width and must be removed by the temporal consensus test instead.
-
-\subsection{Tile Size}
-\label{sec:tilesize}
-
-Reducing the tile footprint to 60\,m was tested as a means of admitting
-lower-altitude frames, since a smaller tile requires less altitude to image. It
-\emph{degrades} performance sharply, to 13.6\% R@100\,m.
-
-Descriptor analysis explains why. At a 60\,m footprint, 2.21\% of all tile pairs
-exceed 0.99 cosine similarity, against 0.31\% at 100\,m --- a sevenfold
-increase --- and the 99th percentile of inter-tile similarity rises from 0.9762
-to 0.9982. Sixty metres of airport ground is frequently featureless grass or a
-plain stretch of taxiway edge, containing insufficient structure to identify
-which such patch it is. This places a lower bound on usable tile size for this
-terrain, and simultaneously explains the anti-correlated confidence score of
-Section~\ref{sec:score}.
-
-\subsection{Terrain Dependence}
-
-The same pipeline applied to \texttt{bell412\_dataset3} --- the same aircraft,
-the same airport, the same network weights, comparable database size --- yields
-R@100\,m of 8.9\% against 17.7\% under identical settings. The difference is
-what the camera observes: \texttt{dataset3} loops over continuous forest canopy,
-whereas \texttt{dataset4} crosses the terminal apron, hangars and taxiways.
-
-Fig.~\ref{fig:where} shows correct predictions clustering on man-made structure
-and failing over uniform ground. Over forest, Canny edge maps are texture noise
-rather than structure, and every tile resembles every other. Since this is a
-controlled comparison across two flights, it supports a general statement:
-retrieval performance is governed by scene distinctiveness rather than by
-altitude or database size.
+The same pipeline, aircraft, airport and weights give 8.9\% R@100\,m on
+\texttt{dataset3} against 17.7\% on \texttt{dataset4}.
+\texttt{dataset3} loops over continuous forest;
+\texttt{dataset4} crosses the terminal apron and taxiways
+(Figs.~\ref{fig:terrain}--\ref{fig:where}). Over uniform canopy, Canny edge maps
+are texture noise and every tile resembles every other. Altitude does not
+explain it (Fig.~\ref{fig:ds3err}).
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/dataset3_vs_dataset4_terrain.png}
-\caption{The two flights, drawn on their respective reference maps.
-\texttt{dataset3} (left) loops over a large area of continuous forest;
-\texttt{dataset4} (right) passes directly over the terminal apron, hangars and
-taxiways.}
+\includegraphics[width=0.62\textwidth]{figures/dataset3_vs_dataset4_terrain.png}
+\caption{\texttt{dataset3} (left) loops over forest; \texttt{dataset4} (right)
+crosses the terminal apron and taxiways.}
 \label{fig:terrain}
 \end{figure*}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/caevl_munfrl_map.png}
-\caption{Retrieval on \texttt{dataset3}. Correct predictions (green) occur
-almost exclusively on the northwestern leg near the airport buildings; the long
-southern arc over forest fails almost entirely. The right panel shows the
-incorrect predictions scattering across the whole database rather than
-near-missing.}
+\includegraphics[width=0.62\textwidth]{figures/caevl_munfrl_map.png}
+\caption{\texttt{dataset3}: successes cluster near the airport buildings; the
+southern arc over forest fails almost entirely.}
 \label{fig:ds3map}
 \end{figure*}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/caevl_munfrl_error.png}
-\caption{Retrieval error against altitude on \texttt{dataset3}, and the error
-distribution. No clean monotonic relationship with altitude is present, which is
-what first indicated that scene content rather than scale was the governing
-factor.}
+\includegraphics[width=0.62\textwidth]{figures/caevl_munfrl_error.png}
+\caption{Error against altitude on \texttt{dataset3}. No monotonic relationship,
+which first indicated that scene content rather than scale governs performance.}
 \label{fig:ds3err}
 \end{figure*}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/caevl_dataset4_map.png}
-\caption{Where retrieval succeeds. Green: correct within 100\,m. Red:
-incorrect. Successes concentrate on runway markings and the terminal apron; the
-featureless stretch between runways fails.}
+\includegraphics[width=0.62\textwidth]{figures/caevl_dataset4_map.png}
+\caption{\texttt{dataset4}: successes concentrate on runway markings and the
+terminal apron; the open stretch between runways fails.}
 \label{fig:where}
 \end{figure*}
 
@@ -811,99 +409,58 @@ featureless stretch between runways fails.}
 
 \begin{table}[H]
 \centering
-\caption{Fusion on \texttt{bell412\_dataset4}, both trajectories anchored at
-takeoff. The causal estimator uses only information available at each instant.}
+\caption{Fusion, both trajectories anchored at takeoff. Causal uses only
+information available at each instant.}
 \label{tab:fusion}
 \begin{tabular}{@{}lccc@{}}
 \toprule
  & OpenVINS & Fused & Reduction \\
 \midrule
-\textbf{Causal (real-time)} & & & \\
-\quad RMSE & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & 49\% \\
-\quad Trajectory drift & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & 43\% \\
-\quad Best run & 463.8\,m & \textbf{198.2\,m} & 57\% \\
-\midrule
-\textbf{Offline (upper bound)} & & & \\
-\quad RMSE, whole flight & 452\,m & 314\,m & 31\% \\
-\quad RMSE, cruise only & 166\,m & \textbf{48\,m} & 71\% \\
+RMSE (3 runs)     & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & 49\% \\
+\quad best run    & 463.8\,m & \textbf{198.2\,m} & 57\% \\
+Trajectory drift  & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & 43\% \\
+Offline, cruise   & 166\,m & \textbf{48\,m} & 71\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/FINAL_causal_dataset4.png}
-\caption{Causal fusion over the full flight. Red: OpenVINS alone. Green: RTK
-ground truth. Magenta: fused. Yellow: CAEVL predictions. Grey band: dead
-reckoning on the VIO before handover. Gold band: while predictions arrive.
-Bottom right: the scale estimate, held at unity during dead reckoning and then
-learned online, though it does not fully converge before predictions cease.}
+\includegraphics[width=0.62\textwidth]{figures/FINAL_causal_dataset4.png}
+\caption{Causal fusion. Red: OpenVINS. Green: RTK truth. Magenta: fused. Grey:
+dead reckoning before handover. Gold: predictions arriving. Bottom right: the
+online scale estimate, held at unity during dead reckoning then learned, though
+it does not fully converge before predictions cease.}
 \label{fig:causal}
 \end{figure*}
 
-Because the estimator dead-reckons before handover, a position is available for
-100\% of the flight rather than only after localisation; the two regimes are
-distinguished in Fig.~\ref{fig:causal} rather than the early period being
-omitted.
-
-\subsection{Computational Cost}
-
-All components run on CPU. Measured on the evaluation machine
-(Table~\ref{tab:cost}), OpenVINS is comfortably real-time: 14.1\,ms per frame
-against a 50\,ms budget at 20\,Hz, a 28\% duty cycle, using 60\% of one core
-and 315\,MB.
-
-Retrieval is the expensive half. At 233\,ms per query it sustains 4.3\,Hz, but
-that figure depends on 20 threads: 1715\% CPU corresponds to 4.4 CPU-seconds of
-work per query, so on a single core the rate would fall to roughly 0.23\,Hz.
-Since absolute fixes are consumed intermittently rather than every frame, even
-that may suffice --- but the distinction matters for an embedded flight computer
-and the multi-core figure should not be quoted alone.
-
-Runtime is also insensitive to database size, varying only between 229 and
-235\,ms across a 3.3$\times$ range of tile counts, which confirms that the cost
-is encoding the query rather than searching the map.
-
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/compute_cost.png}
-\caption{Measured computational cost. Motion tracking needs less than one
-processor core and runs 3.5 times faster than the camera requires; map matching
-needs roughly seventeen. On a single core the latter would produce one fix every
-four seconds, which is still useful because fixes are consumed only
-occasionally.}
-\label{fig:cost}
+\includegraphics[width=0.62\textwidth]{figures/FINAL_dataset4_q200.png}
+\caption{Offline fusion with the altitude profile. Predictions coincide exactly
+with the portion of flight above the 65.6\,m needed to image a full tile.}
+\label{fig:offline}
 \end{figure*}
-
-\begin{table}[H]
-\centering
-\caption{Measured resource cost. Percentages are of a single core.}
-\label{tab:cost}
-\begin{tabular}{@{}lcc@{}}
-\toprule
- & OpenVINS & CAEVL retrieval \\
-\midrule
-Rate            & 20\,Hz (camera)   & 4.3\,Hz \\
-Time per item   & 14.1\,ms/frame    & 233\,ms/query \\
-Duty cycle      & 28\%              & --- \\
-CPU             & 60\%              & 1715\% (20 threads) \\
-CPU-seconds     & 0.014             & 4.4 \\
-Peak memory     & 315\,MB           & 2.08\,GB \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsection{Run-to-run Variance}
 
-OpenVINS is run three times on identical inputs. Its dynamic initialiser begins
-from an assumed zero bias and solves a nonlinear problem over the first window
-of data, so the result is not deterministic:
+OpenVINS was run three times on identical inputs. Its dynamic initialiser starts
+from assumed zero bias and solves a nonlinear problem over the first data
+window, so the outcome is not deterministic (Table~\ref{tab:variance},
+Fig.~\ref{fig:variance}). Runs 2 and 3 agree to within 0.1\,m and 0.002 in
+scale; run 1 is a clear outlier --- a small number of distinct initialisation
+basins rather than continuous noise.
+
+The variance propagates more than proportionally: run 3's \emph{fused} error is
+43\% below run 1's while its \emph{VIO} error is only 14\% below, because the
+consensus test uses VIO motion to judge agreement. Better VIO gives cleaner
+consensus gives a better transform.
 
 \begin{table}[H]
 \centering
 \caption{Three OpenVINS runs, identical configuration and data.}
 \label{tab:variance}
-\begin{tabular}{@{}lccccc@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
  & VIO RMSE & Fused RMSE & Reduction & Scale \\
 \midrule
@@ -911,154 +468,90 @@ run 1 & 540.5\,m & 346.8\,m & 36\% & 1.522 \\
 run 2 & 463.7\,m & 199.0\,m & 57\% & 1.299 \\
 run 3 & 463.8\,m & 198.2\,m & 57\% & 1.297 \\
 \midrule
-mean  & $489.3$ & $248.0$ & 49\% & 1.373 \\
-s.d.  & $44.3$  & $85.6$  & --- & 0.130 \\
+mean  & 489.3 & 248.0 & 49\% & 1.373 \\
+s.d.  & 44.3  & 85.6  & --- & 0.130 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Runs 2 and 3 agree to within 0.1\,m and 0.002 in scale; run 1 is a clear
-outlier. This is not broad stochastic noise but a small number of distinct
-initialisation outcomes, of which run 1 caught a worse one. The spread matters
-because it is comparable to the improvement the fusion provides, so any
-single-run figure should be read with that in mind.
-
-The variance also propagates: a better-conditioned VIO improves the fusion more
-than proportionally, because the consensus test uses VIO motion to decide which
-predictions agree. Run 3's fused error is 43\% lower than run 1's while its VIO
-error is only 14\% lower.
-
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/run_variance.png}
+\includegraphics[width=0.62\textwidth]{figures/run_variance.png}
 \caption{Three OpenVINS runs on identical inputs. Runs 2 and 3 are nearly
 indistinguishable; run 1 initialised into a worse basin.}
 \label{fig:variance}
 \end{figure*}
 
-The gap between the causal and offline results is itself informative. The
-offline estimator may use predictions from $t = 152$\,s to correct the estimate
-at $t = 60$\,s; a deployed system cannot. Its scale estimate reaches only 1.32
-of the required 1.671 before predictions stop, so the correction it applies is
-partial. With absolute fixes available across a larger fraction of the flight,
-scale would converge earlier and the causal result would approach the offline
-one --- which again points at coverage rather than at the estimator.
+\subsection{Computational Cost}
+
+OpenVINS is comfortably real-time: 14.1\,ms per frame against a 50\,ms budget,
+60\% of one core, 315\,MB. Retrieval is the expensive half --- 233\,ms per query
+at 4.3\,Hz, but that depends on 20 threads. At 4.4 CPU-seconds per query, a
+single core gives roughly 0.23\,Hz. Since fixes are consumed intermittently that
+may suffice, but the multi-core figure should not be quoted alone for an
+embedded computer.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/FINAL_dataset4_q200.png}
-\caption{Offline fusion with the altitude profile. The gold band marks where
-predictions are available; it coincides exactly with the portion of the flight
-above the altitude required to image a full tile (dashed line, 65.6\,m).}
-\label{fig:offline}
+\includegraphics[width=0.62\textwidth]{figures/compute_cost.png}
+\caption{Measured cost. Motion tracking needs under one core and runs
+3.5$\times$ faster than required; map matching needs about seventeen.}
+\label{fig:cost}
 \end{figure*}
 
-\section{Discussion}
-
-Three results in this report initially appeared to be separate problems, and all
-three reduced to the same cause.
-
-Retrieval was first suspected of being scale-limited, since CAEVL was trained at
-a 1438\,m tile footprint and applied at 100\,m. Stratifying recall by altitude
-did not support this: on \texttt{dataset3} the relationship with altitude is not
-monotonic (Fig.~\ref{fig:ds3err}), and the strongest predictor turned out to be
-whether the camera was over structure or over uniform terrain.
-
-The fusion was then suspected of being estimator-limited, since an EKF
-underperformed a batch transform fit. That gap is real, but both estimators
-converge to similar behaviour once predictions cease, and the causal--offline gap
-is explained almost entirely by the scale estimate not having converged before
-the supply of predictions ended.
-
-Finally the causal result was suspected of being tuning-limited. Sweeping the
-consensus parameters over 64 configurations changed RMSE by at most 75\,m, an
-order of magnitude less than the difference between having predictions and not
-having them.
-
-In every case the binding constraint was the same: for 66\% of this flight the
-aircraft is too low for a map tile to be imaged at all, so no absolute
-information exists to be fused. This has a practical implication for deployment
-that is worth stating plainly --- for a system of this type, \emph{flight
-planning is part of the estimator}. An operator who needs bounded position error
-must budget time at an altitude where the camera can see enough ground to
-localise, in the same way they would budget fuel. The results here suggest that
-even a modest fraction of the flight spent above that threshold is sufficient to
-recover the similarity transform, after which the correction persists through
-subsequent low-altitude segments, degrading only as the VIO drifts afresh.
-
 \section{Limitations}
-\label{sec:limits}
 
-\textbf{Altitude coverage is the binding constraint.} A 100\,m tile requires
-approximately 66\,m of altitude to be fully imaged, since the camera observes
-about $1.5\times$ its height in ground extent. Only 34\% of this flight is above
-that threshold. The profile is takeoff, a 70\,s cruise near 105\,m, a descent,
-and then 80\,s of level flight at approximately 11\,m where the camera images
-17\,m of ground --- an area from which no map-matching method could localise. The
-restriction is physical rather than algorithmic, and reducing tile size to
-compensate fails for the reasons given in Section~\ref{sec:tilesize}.
+\textbf{Altitude coverage binds.} A 100\,m tile needs $\sim$66\,m of altitude,
+since the camera sees about $1.5\times$ its height. Only 34\% of this flight
+qualifies: takeoff, a 70\,s cruise near 105\,m, descent, then 80\,s at
+$\sim$11\,m where the camera images 17\,m of ground
+(Fig.~\ref{fig:context}). Running retrieval on those frames anyway was tested
+and made fusion \emph{worse}, 347 to 527\,m --- 260 predictions below 66\,m were
+1.9\% correct, and consensus precision fell from 87\% to 43\%. Reducing tile
+size to compensate fails for the reasons above.
+
+\textbf{Two quantities come from ground truth}: query altitude and the
+VIO-to-map yaw. In deployment these come from an altimeter and a magnetometer;
+MUN-FRL records neither. The VIO's own altitude is not a substitute --- median
+error 29.8\,m, a 30\% error in every query's ground extent at 100\,m.
+
+\textbf{Fusion is evaluated on one flight}, retrieval on two.
+
+\textbf{The 40\% VIO scale deficit is unexplained}, and is also the source of
+the run-to-run spread.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{figures/whole_flight_context.png}
-\caption{Why coverage is limited. Left: the full 319\,s track (blue) with
-takeoff and landing marked; white shows where queries exist and green where
-retrieval succeeded. Right: the altitude profile, with the dashed line at the
-65.6\,m needed to image a full 100\,m tile. Queries exist only above it, which
-is the cruise phase --- takeoff, descent and the 80\,s of low-level flight that
-follows supply none.}
+\includegraphics[width=0.62\textwidth]{figures/whole_flight_context.png}
+\caption{Left: the full 319\,s track, with white marking where queries exist and
+green where retrieval succeeded. Right: altitude, with the dashed line at the
+65.6\,m needed to image a full tile. Queries exist only above it.}
 \label{fig:context}
 \end{figure*}
 
-\textbf{Two quantities are taken from ground truth.} Query generation uses the
-ground-truth altitude to normalise ground extent, and the VIO-to-map yaw offset
-is obtained by fitting the two tracks. Both are evaluation conveniences rather
-than deployable choices. In operation, altitude would come from a barometric or
-radar altimeter --- standard equipment that MUN-FRL does not record --- and the
-initial heading from a magnetometer or from the first accepted prediction. We
-verified that the VIO's own altitude is not an adequate substitute: its median
-error against truth is 29.8\,m, which at 100\,m altitude corresponds to a 30\%
-error in the ground extent of every query.
+\section{Conclusion}
 
-\textbf{Fusion is evaluated on a single flight.} Retrieval was evaluated on two
-sequences and the terrain-dependence result is a controlled comparison, but the
-fusion figures come from one flight only.
+A CPU-only pipeline bounds VIO drift using self-supervised geo-localization
+requiring no paired training data, on real flight data with centimetre-accurate
+truth: $489\pm44$\,m to $248\pm86$\,m in real time, and 166 to 48\,m offline
+where fixes exist.
 
-\textbf{The VIO scale deficit is unexplained.} A systematic 40\% shortfall is
-larger than expected for a calibrated visual-inertial system, and was not
-resolved by IMU restamping. Candidate causes not yet excluded include the IMU
-noise parameters and the assumed gravity magnitude.
-
-\section{Conclusion and Future Work}
-
-We have demonstrated a CPU-only pipeline that bounds VIO drift using
-self-supervised aerial geo-localization requiring no paired training data,
-evaluated on real flight data with centimetre-accurate ground truth. In real
-time, position RMSE falls from 489\,m to 248\,m (mean of three runs); where
-absolute fixes are
-available, offline error falls from 166\,m to 48\,m.
-
-The principal finding is methodological. With an inlier rate below 20\% and a
-confidence score that is measurably anti-correlated with correctness, the
-decision of \emph{which} absolute measurements to accept matters more than the
-estimator that consumes them. Consensus among temporally adjacent predictions,
-evaluated through the motion prior, raises precision from 17.7\% to 99.0\% while
-retaining 93\% of correct predictions, and does so without consulting either the
-retrieval score or the filter's own belief --- structurally avoiding the
-divergence mode in which a drifted filter rejects precisely the measurements
+The principal finding is methodological. With inlier rates below 20\% and a
+confidence score anti-correlated with correctness, deciding \emph{which}
+measurements to accept matters more than the estimator consuming them. Consensus
+among temporally adjacent predictions, judged through the motion prior, raises
+precision from 17.7\% to 99.0\% while keeping 93\% of correct predictions ---
+without consulting the retrieval score or the filter's own belief, structurally
+avoiding the divergence mode in which a drifted filter rejects the measurements
 that would correct it.
 
-The limiting factor throughout is availability rather than accuracy. Three
-directions follow. First, query-side scale normalisation in the manner of Shao
-et al.\ \cite{shao2026altitude}, constructing a single-scale reference database
-at the lowest operating altitude and rescaling queries down to it, would remove
-both the altitude dependence and the fixed-footprint assumption. Second,
-retraining CAEVL at a tile footprint matched to the deployment altitude, rather
-than the 14.4$\times$ larger footprint of its current ViLD training data, is a
-training run rather than a research problem and is the single change most likely
-to move the 35.8\% retrieval figure substantially. Third, resolving the VIO
-scale deficit would improve the prior that the consensus test depends upon, and
-would reduce the baseline against which the whole system is measured.
+The limiting factor is availability, not accuracy. Query-side scale
+normalisation \cite{shao2026altitude}, building one database at the lowest
+operating altitude and rescaling queries down, would remove both the altitude
+dependence and the fixed-footprint assumption. Retraining CAEVL at a tile
+footprint matched to deployment altitude --- rather than the $14.4\times$ larger
+ViLD footprint --- is a training run rather than a research problem, and is the
+change most likely to move the 35.8\% retrieval figure.
 
 \printbibliography
 
