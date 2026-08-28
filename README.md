@@ -199,6 +199,25 @@ profile is ongoing work.
 
 ---
 
+## Report and slides
+
+| | |
+|---|---|
+| [`report/report.pdf`](report/report.pdf) | 9 pages, IEEE format, 15 figures |
+| [`report/slides.pdf`](report/slides.pdf) | 10 slides |
+| [`report/slides_turkish.pdf`](report/slides_turkish.pdf) | the same deck in Turkish |
+
+Sources sit alongside them; rebuild with `pdflatex` + `biber`.
+
+## Plots
+
+[`diagnostics/`](diagnostics/) holds every figure generated during the work — the
+15 used in the report plus the intermediate ones that record how the 456 m
+georeferencing bug was found. [`diagnostics/README.md`](diagnostics/README.md)
+indexes them.
+
+---
+
 ## Repository layout
 
 This repo holds the report, the fusion and data-preparation tools, and the figures. The
