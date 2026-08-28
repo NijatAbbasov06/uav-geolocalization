@@ -14,6 +14,16 @@
 
 \raggedbottom
 
+% pack float-only pages from the top instead of spreading them vertically
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@fpsep}{14pt plus 0fil}
+\setlength{\@fpbot}{0pt plus 1fil}
+\setlength{\@dblfptop}{0pt}
+\setlength{\@dblfpsep}{14pt plus 0fil}
+\setlength{\@dblfpbot}{0pt plus 1fil}
+\makeatother
+
 % allow denser float packing - this report is figure-heavy by design
 \setcounter{topnumber}{4}
 \setcounter{bottomnumber}{2}
@@ -125,17 +135,7 @@ track with those parameters places it \textbf{456\,m} from the actual flight
 (Fig.~\ref{fig:trackmap}). A bounds check cannot catch this --- the track still
 lands inside the image --- yet every tile then depicts different ground than it
 claims. Before this was found, query and reference tiles nominally 6\,m apart
-showed forest canopy and ploughed farmland respectively
-(Fig.~\ref{fig:pairs}).
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.62\textwidth]{figures/munfrl_pairs.png}
-\caption{The symptom. Columns: query, query Canny edges, nearest reference tile,
-tile edges. Row two pairs forest with farmland despite a nominal 6\,m
-separation.}
-\label{fig:pairs}
-\end{figure*}
+showed forest canopy and ploughed farmland respectively.
 
 \begin{figure*}[t]
 \centering
@@ -172,15 +172,6 @@ bag by exactly 18.00\,s --- the 2022 GPS-UTC leap second count.
 database size versus corridor width, 5340 tiles at 400\,m down to 1186 at
 100\,m.}
 \label{fig:coverage}
-\end{figure*}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.62\textwidth]{figures/esri_vs_munfrl.png}
-\caption{Query, fetched tile, their Canny edges, and the shipped-map tile. The
-fetched imagery gives 12.97\% edge density against the camera's 16.75\%,
-compared with 5.38\% for the shipped map.}
-\label{fig:esri}
 \end{figure*}
 
 \subsection{Query Generation}
@@ -504,8 +495,7 @@ embedded computer.
 \textbf{Altitude coverage binds.} A 100\,m tile needs $\sim$66\,m of altitude,
 since the camera sees about $1.5\times$ its height. Only 34\% of this flight
 qualifies: takeoff, a 70\,s cruise near 105\,m, descent, then 80\,s at
-$\sim$11\,m where the camera images 17\,m of ground
-(Fig.~\ref{fig:context}). Running retrieval on those frames anyway was tested
+$\sim$11\,m where the camera images 17\,m of ground. Running retrieval on those frames anyway was tested
 and made fusion \emph{worse}, 347 to 527\,m --- 260 predictions below 66\,m were
 1.9\% correct, and consensus precision fell from 87\% to 43\%. Reducing tile
 size to compensate fails for the reasons above.
@@ -519,15 +509,6 @@ error 29.8\,m, a 30\% error in every query's ground extent at 100\,m.
 
 \textbf{The 40\% VIO scale deficit is unexplained}, and is also the source of
 the run-to-run spread.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.62\textwidth]{figures/whole_flight_context.png}
-\caption{Left: the full 319\,s track, with white marking where queries exist and
-green where retrieval succeeded. Right: altitude, with the dashed line at the
-65.6\,m needed to image a full tile. Queries exist only above it.}
-\label{fig:context}
-\end{figure*}
 
 \section{Conclusion}
 
