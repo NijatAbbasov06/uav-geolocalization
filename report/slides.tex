@@ -23,104 +23,109 @@
 \titlepage
 \end{frame}
 
-%---------------------------------------------------------------- 1. abstract
-\begin{frame}{The problem, and the result}
-\textbf{Two estimators with opposite failure modes.}
-\begin{itemize}
-\item \textbf{VIO} (OpenVINS) --- smooth, locally accurate, \emph{drifts without
-      bound}. On this flight: 700\,m over 3.6\,km, 19\% of distance flown.
-\item \textbf{Geo-localization} (CAEVL) --- absolute, \emph{never drifts}, but
-      only 36\% of predictions are correct and its confidence score cannot tell
-      you which.
-\end{itemize}
+\begin{frame}{Two estimators, opposite failure modes}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\textbf{VIO} --- smooth, drifts without bound\\
+{\small 700\,m over 3.6\,km $=$ 19\% of distance flown}
 
-\vspace{0.4em}
-\textbf{Result} --- MUN-FRL \texttt{bell412\_dataset4}, 3.6\,km over Ottawa
-International Airport:
+\vspace{0.9em}
+\textbf{Geo-localization} --- absolute, never drifts\\
+{\small but only 36\% of predictions are correct}
 
-\vspace{0.3em}
+\vspace{1.3em}
+\textbf{Fuse them.}\\
+{\small VIO gives shape.\\Geo-localization gives scale and position.}
+
+\vspace{1.3em}
+{\small MUN-FRL \texttt{bell412\_dataset4}\\
+3.6\,km, Ottawa International Airport\\
+CPU only --- no GPU on the airframe}
+\end{column}
+\begin{column}{0.5\textwidth}
 \centering
-\begin{tabular}{@{}lccc@{}}
+\vspace{1.5em}
+\begin{tabular}{@{}lcc@{}}
 \toprule
- & OpenVINS & Fused & \\
+ & OpenVINS & Fused \\
 \midrule
-Real-time (causal) RMSE & 540\,m & \textbf{347\,m} & $-36\%$ \\
-Offline, cruise only    & 166\,m & \textbf{48\,m}  & $-71\%$ \\
+Real-time RMSE & 540\,m & \textbf{347\,m} \\
+Offline, cruise & 166\,m & \textbf{48\,m} \\
 \bottomrule
 \end{tabular}
 
-\vspace{0.6em}
-\raggedright
-Everything runs on \textbf{CPU}: retrieval 233\,ms/query, VIO at 20\,Hz.
+\vspace{2em}
+{\large $-36\%$}\\[0.2em]
+{\small real-time}
+
+\vspace{1em}
+{\large $-71\%$}\\[0.2em]
+{\small where fixes exist}
+\end{column}
+\end{columns}
 \end{frame}
 
-%------------------------------------------------------- 2. CAEVL + OpenVINS
-\begin{frame}{CAEVL --- self-supervised geo-localization}
+\begin{frame}{CAEVL --- geo-localization without paired data}
 \begin{columns}[T]
-\begin{column}{0.52\textwidth}
-\textbf{The domain gap:} a photo taken now versus satellite imagery from months
-ago --- different sensor, season, sun angle.
+\begin{column}{0.48\textwidth}
+\textbf{Domain gap:} photo now vs.\ satellite imagery months old.
 
-\vspace{0.5em}
-\textbf{The trick:} throw appearance away. Both sides become \textbf{Canny edge
-maps} --- roads and field boundaries survive, colour and illumination do not.
+\vspace{0.7em}
+\textbf{Fix:} discard appearance --- both sides become \textbf{Canny edge maps}.
 
-\vspace{0.5em}
-\textbf{Training, on reference imagery \emph{only}:}
+\vspace{1em}
+\textbf{Trains on reference imagery \emph{only}:}
 \begin{enumerate}
-\item Autoencoder, edge map $\rightarrow$ 1024-d descriptor, with a DINOv2
-      perceptual loss
-\item VICReg fine-tuning on (clean tile, degraded copy) pairs --- no negatives,
-      no paired UAV data
+\item Autoencoder $\rightarrow$ 1024-d descriptor\\{\small $+$ DINOv2 perceptual loss}
+\item VICReg on (clean, degraded) pairs\\{\small no negatives, no paired UAV data}
 \end{enumerate}
 
-\vspace{0.5em}
-Deploying over new terrain needs \textbf{satellite tiles and nothing else}.
+\vspace{0.9em}
+$\Rightarrow$ new terrain needs \textbf{satellite tiles only}
 \end{column}
-\begin{column}{0.46\textwidth}
+\begin{column}{0.5\textwidth}
 \centering
-\includegraphics[width=\linewidth]{figures/esri_vs_munfrl.png}\\
-{\scriptsize query \quad tile \quad their Canny edges}
+\includegraphics[width=0.8\linewidth]{figures/esri_vs_munfrl.png}
 
-\vspace{0.5em}
+\vspace{0.7em}
 \begin{tabular}{@{}lc@{}}
 \toprule
 ViLD reproduction & R@1 \\
 \midrule
 Paper & 49.68\% \\
 Ours & 48.14\% \\
-\quad + perceptual loss & \textbf{52.88\%} \\
+\quad $+$ perceptual loss & \textbf{52.88\%} \\
 \bottomrule
 \end{tabular}
 \end{column}
 \end{columns}
 \end{frame}
 
-\begin{frame}{OpenVINS --- and why the dataset was hard to find}
+\begin{frame}{OpenVINS --- and the dataset problem}
 \begin{columns}[T]
-\begin{column}{0.46\textwidth}
-MSCKF visual-inertial odometry, monocular, nadir camera. \textbf{No loop
-closure} --- landmarks are marginalised.
+\begin{column}{0.42\textwidth}
+MSCKF, monocular, nadir camera.\\
+\textbf{No loop closure.}
+
+\vspace{0.9em}
+Anchored at takeoff:\\
+\textbf{14.7\,m $\rightarrow$ 700\,m}
 
 \vspace{0.5em}
-Anchored at takeoff it starts 14.7\,m from truth and drifts to \textbf{700\,m}.
-A best-fit scale correction recovers it to 215\,m, so most of the error is a
-systematic \textbf{40\% scale deficit}, not random walk.
+Scale-corrected: 215\,m\\
+$\Rightarrow$ mostly a \textbf{40\% scale deficit}
 
-\vspace{0.8em}
-\textbf{Why MUN-FRL:} the two halves want opposite flight profiles ---
-\begin{itemize}
-\item VIO needs \textbf{parallax} $\rightarrow$ fly low
-\item Geo-localization needs \textbf{ground footprint} $\rightarrow$ fly high
-\end{itemize}
-so datasets optimise for one or the other.
+\vspace{1.3em}
+\textbf{Why so few usable datasets?}\\[0.4em]
+{\small VIO needs \textbf{parallax} $\rightarrow$ low\\
+Geo-loc needs \textbf{footprint} $\rightarrow$ high}
 \end{column}
-\begin{column}{0.52\textwidth}
+\begin{column}{0.56\textwidth}
 \centering
 \includegraphics[width=\linewidth]{figures/vio_anchoring_dataset4.png}
 
-\vspace{0.3em}
-{\scriptsize
+\vspace{0.5em}
+{\small
 \begin{tabular}{@{}llc@{}}
 \toprule
 Dataset & Altitude & IMU \\
@@ -128,7 +133,7 @@ Dataset & Altitude & IMU \\
 VPAIR & 300\,m & no \\
 AerialVL & --- & no \\
 SatLoc & 100--300\,m & not released \\
-Zurich MAV & 5--15\,m & yes, too low \\
+Zurich MAV & 5--15\,m & too low \\
 \textbf{MUN-FRL} & \textbf{25--170\,m} & \textbf{yes} \\
 \bottomrule
 \end{tabular}}
@@ -136,75 +141,69 @@ Zurich MAV & 5--15\,m & yes, too low \\
 \end{columns}
 \end{frame}
 
-%--------------------------------------------------------- 3. fusing method
-\begin{frame}{The real problem: which predictions to believe}
+\begin{frame}{The confidence score is worse than useless}
 \begin{columns}[T]
-\begin{column}{0.48\textwidth}
-Only \textbf{36\%} of predictions are correct. Worse, the retrieval score is
-\emph{anti}-correlated with correctness, over \textbf{two independent flights}:
-
-\vspace{0.4em}
+\begin{column}{0.42\textwidth}
 \centering
 \begin{tabular}{@{}lcc@{}}
 \toprule
- & correct & wrong \\
+mean score & correct & wrong \\
 \midrule
 dataset4 & 0.9429 & \textbf{0.9493} \\
 dataset3 & 0.9447 & \textbf{0.9598} \\
 \bottomrule
 \end{tabular}
 
-\vspace{0.6em}
+\vspace{1.2em}
 \raggedright
-\textbf{Why:} small or featureless tiles produce near-identical descriptors, so
-confidence peaks exactly where tiles are least distinguishable.
+\textbf{Anti-correlated}, on two independent flights.
 
-\vspace{0.5em}
-$\Rightarrow$ no threshold on the score can work. Rejection must come from
-\textbf{geometry}.
+\vspace{1em}
+Featureless tiles give near-identical descriptors $\Rightarrow$ confidence peaks
+where tiles are \emph{least} distinguishable.
+
+\vspace{1em}
+$\Rightarrow$ \textbf{reject on geometry, not score}
 \end{column}
-\begin{column}{0.50\textwidth}
+\begin{column}{0.56\textwidth}
 \centering
 \includegraphics[width=\linewidth]{figures/caevl_dataset4_map.png}
 
-\vspace{0.2em}
-{\scriptsize Green = correct. Successes concentrate on runway markings and the
-terminal apron; open ground fails.}
+\vspace{0.3em}
+{\small Green $=$ correct. Structure works; open ground does not.}
 \end{column}
 \end{columns}
 \end{frame}
 
 \begin{frame}{Consensus outlier rejection}
 \begin{columns}[T]
-\begin{column}{0.44\textwidth}
-Wrong predictions scatter roughly uniformly over the map. Two of them agreeing
---- after accounting for the VIO motion between their timestamps --- has
-probability
+\begin{column}{0.4\textwidth}
+Wrong predictions scatter uniformly. Two agreeing --- after removing the VIO
+motion between them:
 \[
-\sim \frac{\pi\tau^2}{A} \approx 0.5\%
+\sim\frac{\pi\tau^{2}}{A}\approx 0.5\%
 \]
 Correct ones agree \textbf{by construction}.
 
-\vspace{0.5em}
-So: slide a window, RANSAC a similarity transform from two predictions, keep the
-largest mutually consistent set.
+\vspace{1em}
+RANSAC over a sliding window; keep the largest consistent set.
 
-\vspace{0.5em}
-\textbf{Never consults the retrieval score, and never consults the filter's own
-belief} --- so it cannot lock itself out.
+\vspace{1em}
+Uses \textbf{neither the score nor the filter's belief} $\Rightarrow$ cannot
+lock itself out.
 \end{column}
-\begin{column}{0.54\textwidth}
+\begin{column}{0.58\textwidth}
 \centering
 \includegraphics[width=\linewidth]{figures/consensus_filter.png}
 
-\vspace{0.3em}
+\vspace{0.5em}
 \begin{tabular}{@{}lcc@{}}
 \toprule
  & before & after \\
 \midrule
 predictions & 299 & 101 \\
 precision & 17.7\% & \textbf{99.0\%} \\
-correct kept & 107 & 100 (93\%) \\
+correct kept & 107 & 100 \textbf{(93\%)} \\
 \bottomrule
 \end{tabular}
 \end{column}
@@ -212,125 +211,101 @@ correct kept & 107 & 100 (93\%) \\
 \end{frame}
 
 \begin{frame}{Causal fusion}
-The VIO trajectory is mapped into the map frame by a similarity transform
-estimated \textbf{online, from past predictions only}:
-\[
-\hat{\bm{p}}_k = s\,\bm{R}(\theta)\,\bm{p}^{\text{vio}}_k + \bm{t}
-\]
+\centering
+$\hat{\bm{p}}_k = s\,\bm{R}(\theta)\,\bm{p}^{\text{vio}}_k + \bm{t}$
+\quad --- estimated online, \textbf{from past predictions only}
 
-\vspace{0.3em}
+\vspace{1.2em}
 \begin{columns}[T]
-\begin{column}{0.5\textwidth}
-\textbf{Why estimate $s$ and $\theta$?}
-\begin{itemize}
-\item OpenVINS initialises with an \textbf{arbitrary heading}
-\item Its \textbf{40\% scale deficit} would otherwise reappear between every
-      pair of predictions
-\end{itemize}
-
-\vspace{0.5em}
-\textbf{Before handover:} dead-reckon on the VIO from the known takeoff pose.
-A position is output at \textbf{every} instant --- a navigation system cannot
-refuse to answer.
-\end{column}
-\begin{column}{0.5\textwidth}
-\textbf{Each step:}
+\begin{column}{0.47\textwidth}
+\raggedright
+\textbf{On each new prediction}
 \begin{enumerate}
-\item predictions whose timestamp has passed enter a buffer
-\item a \emph{trailing} window is screened for consensus
+\item enters a buffer
+\item \emph{trailing} window screened for consensus
 \item survivors accumulate
 \item refit $(s,\theta,\bm{t})$ to all accepted history
 \end{enumerate}
 
-\vspace{0.4em}
-Scale needs a long baseline, so the fit uses the \textbf{full} accepted history
---- still causal, with growing memory.
+\vspace{0.9em}
+\textbf{Before handover:} dead-reckon on VIO from the known takeoff pose\\
+{\small $\Rightarrow$ position output at \emph{every} instant}
+\end{column}
+\begin{column}{0.47\textwidth}
+\raggedright
+\textbf{Why estimate $s$ and $\theta$?}\\[0.3em]
+{\small Arbitrary initial heading, and a 40\% scale deficit that would return
+between every pair of fixes.}
+
+\vspace{1.2em}
+\textbf{An EKF lost: 422\,m vs 347\,m}\\[0.3em]
+{\small Scale error grows \emph{linearly}, process noise as $\sqrt{\cdot}$.
+The filter turns overconfident and gates out correct predictions --- most
+certain when most wrong.}
 \end{column}
 \end{columns}
-
-\vspace{0.5em}
-\footnotesize
-\textbf{An EKF over $(x,y,s,\theta)$ with chi-square gating was tried first and
-lost}, 422\,m against 347\,m. A scale error makes position error grow
-\emph{linearly} while random-walk noise grows as $\sqrt{\cdot}$, so the filter
-becomes overconfident and gates out the correct predictions --- most certain
-exactly when most wrong. Inflating the covariance reopened the gate and admitted
-an outlier that moved the estimate 2.4\,km.
 \end{frame}
 
-%---------------------------------------------------------------- 4. results
-\begin{frame}{Result --- real-time fusion}
+\begin{frame}{Result --- real-time, full flight}
 \centering
-\includegraphics[width=0.93\linewidth]{figures/FINAL_causal_dataset4.png}
+\includegraphics[width=0.9\linewidth]{figures/FINAL_causal_dataset4.png}
 
-\vspace{-0.2em}
-{\footnotesize Red: OpenVINS alone. Green: RTK truth. Magenta: fused. Grey:
-dead reckoning before handover at $t+73$\,s. \quad
-\textbf{540\,m $\rightarrow$ 347\,m}, position output for 100\% of the flight.}
+\vspace{-0.3em}
+{\small Red: OpenVINS. Green: RTK truth. Magenta: fused. Grey: dead reckoning
+before handover at $t{+}73$\,s.\quad\textbf{540\,m $\rightarrow$ 347\,m}}
 \end{frame}
 
-\begin{frame}{What governs performance}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{Scene content, not altitude or database size.}\\
-Same aircraft, same airport, same weights:
-
-\vspace{0.3em}
+\begin{frame}{Summary}
 \centering
-\begin{tabular}{@{}lc@{}}
+\begin{tabular}{@{}lccc@{}}
 \toprule
- & R@100\,m \\
+ & OpenVINS & \textbf{$+$ Geo-loc} & Improvement \\
 \midrule
-dataset3 (forest) & 8.9\% \\
-dataset4 (terminal, taxiways) & \textbf{17.7\%} \\
+Translation RMSE  & 540.5\,m & \textbf{346.8\,m} & $-36\%$ \\
+Median error      & 570.9\,m & \textbf{255.4\,m} & $-55\%$ \\
+Final error       & 699.9\,m & \textbf{514.7\,m} & $-26\%$ \\
+Trajectory drift  & 19.41\%  & \textbf{14.27\%}  & $-26\%$ \\
+\midrule
+Orientation RMSE  & \multicolumn{3}{c}{\emph{not measurable --- ground truth carries no attitude}} \\
+\midrule
+Output rate       & 20\,Hz & 20\,Hz & unchanged \\
+VIO runtime       & 13.7\,ms/frame & 13.7\,ms/frame & unchanged \\
+Retrieval runtime & --- & 233\,ms/query (4.3\,Hz) & added \\
+CPU usage         & \multicolumn{3}{c}{\emph{not yet measured}} \\
 \bottomrule
 \end{tabular}
 
-\vspace{0.7em}
-\raggedright
-\textbf{Search restriction} --- confine the database to the motion prior's
-uncertainty region: 5340 $\rightarrow$ 1612 tiles, recall
-17.7\% $\rightarrow$ \textbf{35.8\%}.
-
-\vspace{0.4em}
-\textbf{Smaller tiles fail.} At 60\,m, 2.21\% of tile pairs exceed 0.99
-similarity (vs 0.31\% at 100\,m) --- descriptors collapse.
-\end{column}
-\begin{column}{0.50\textwidth}
-\centering
-\includegraphics[width=\linewidth]{figures/caevl_q200_compare.png}
-
-\vspace{0.2em}
-{\scriptsize Restricting the tile database doubles recall.}
-\end{column}
-\end{columns}
+\vspace{1.2em}
+{\small 3.6\,km over 301\,s. Both trajectories anchored at takeoff; the causal
+estimator uses only information available at each instant.}
 \end{frame}
 
-\begin{frame}{Limitations and what comes next}
+\begin{frame}{Limitations and next steps}
 \begin{columns}[T]
-\begin{column}{0.52\textwidth}
-\textbf{Availability, not accuracy, is the binding constraint.}
+\begin{column}{0.5\textwidth}
+\textbf{Availability, not accuracy, is the limit}
 \begin{itemize}
-\item A 100\,m tile needs $\sim$66\,m of altitude to be imaged. Only \textbf{34\%}
-      of this flight is above it.
-\item Below that: 1--5\% correct. Tested --- adding those frames made the fusion
-      \emph{worse} (347\,m $\rightarrow$ 527\,m).
-\item Two quantities still come from ground truth: query \textbf{altitude} and
-      initial \textbf{heading}. In deployment: altimeter and magnetometer.
-\item Fusion evaluated on one flight; the 40\% VIO scale deficit is unexplained.
+\item 100\,m tile needs $\sim$66\,m altitude\\
+      {\small only \textbf{34\%} of this flight qualifies}
+\item Below that: 1--5\% correct\\
+      {\small adding them made fusion \emph{worse}: 347 $\rightarrow$ 527\,m}
+\item Smaller tiles collapse the descriptors\\
+      {\small 2.21\% of pairs $>0.99$ similar, vs 0.31\% at 100\,m}
+\item Altitude and initial heading still from ground truth\\
+      {\small deployment: altimeter $+$ magnetometer}
 \end{itemize}
 \end{column}
-\begin{column}{0.46\textwidth}
-\textbf{Next steps}
+\begin{column}{0.48\textwidth}
+\textbf{Next}
 \begin{enumerate}
-\item \textbf{Query-side scale normalisation} (Shao et al.\ 2026): build one
-      database at the lowest operating altitude, rescale queries down to it.
-\item \textbf{Retrain CAEVL} at a 100\,m tile footprint instead of ViLD's
-      1438\,m --- a $14.4\times$ gap. A training run, not a research problem.
-\item Resolve the VIO scale deficit.
+\item \textbf{Query-side scale normalisation}\\
+      {\small one database at the lowest operating altitude; rescale queries down to it}
+\item \textbf{Retrain CAEVL at a 100\,m footprint}\\
+      {\small currently trained at 1438\,m --- a $14.4\times$ gap}
+\item Resolve the VIO scale deficit
 \end{enumerate}
 
-\vspace{0.8em}
+\vspace{1.5em}
 \centering
 \footnotesize
 \texttt{github.com/NijatAbbasov06/}\\
