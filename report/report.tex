@@ -365,7 +365,7 @@ pairs dense forest canopy with ploughed farmland despite the two being nominally
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/track_on_map.png}
+\includegraphics[width=0.80\textwidth]{figures/track_on_map.png}
 \caption{Georeferencing error in the shipped map metadata. Red: the flight track
 projected using the published parameters. Dark curve: the true path, drawn onto
 the map by the dataset authors. The two differ by 456\,m.}
@@ -383,7 +383,7 @@ leaves a smear across 23\% of each tile.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.85\linewidth]{figures/munfrl_clean.png}
+\includegraphics[width=0.72\linewidth]{figures/munfrl_clean.png}
 \caption{Query (left) against a tile from the shipped map after the painted
 flight path has been inpainted (right). The ground now corresponds correctly,
 but the repaired band consumes 23\% of the tile width and is smooth where the
@@ -401,7 +401,7 @@ leap second count for 2022 --- with identical durations.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/coverage_dataset4.png}
+\includegraphics[width=0.80\textwidth]{figures/coverage_dataset4.png}
 \caption{Left: the fetched basemap (yellow, 6.75\,km$^2$) against the tiles
 actually cut from it. Right: how the database shrinks as the corridor narrows,
 from 5340 tiles at 400\,m to 1186 at 100\,m. The download size is irrelevant to
@@ -474,7 +474,7 @@ restamping described above, and the estimated accelerometer bias
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/vio_anchoring_dataset4.png}
+\includegraphics[width=0.80\textwidth]{figures/vio_anchoring_dataset4.png}
 \caption{OpenVINS anchored at takeoff (orange) starts on the truth and drifts to
 700\,m. A best-fit placement over the whole flight (dashed) distributes the same
 error differently, and is the reason a naive plot can appear to show an
@@ -484,7 +484,7 @@ initialisation failure where none exists.}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/vio_dataset4.png}
+\includegraphics[width=0.80\textwidth]{figures/vio_dataset4.png}
 \caption{OpenVINS against ground truth. The yaw-aligned estimate (red) is a
 visibly shrunken copy of the truth; correcting scale by $1.67$ (blue) recovers
 the trajectory shape. The right panel shows that even after scale correction the
@@ -578,7 +578,7 @@ Correct predictions retained & 107 & 100 (93\%) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/consensus_filter.png}
+\includegraphics[width=0.80\textwidth]{figures/consensus_filter.png}
 \caption{Consensus rejection. Left: all predictions, green correct, red
 incorrect. Right: after filtering. Precision rises from 17.7\% to 99.0\% while
 93\% of correct predictions survive.}
@@ -663,7 +663,7 @@ materially easier when even the filtered predictions contain outliers.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/fused_dataset4.png}
+\includegraphics[width=0.80\textwidth]{figures/fused_dataset4.png}
 \caption{The extended Kalman filter failing. Left: the fused track (magenta)
 against truth, with accepted predictions in orange clustered entirely in the
 first part of the flight. Centre: fused error tracks the VIO baseline in shape
@@ -715,7 +715,7 @@ plotted at the aircraft's true position.}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/caevl_predictions_dataset4.png}
+\includegraphics[width=0.80\textwidth]{figures/caevl_predictions_dataset4.png}
 \caption{Every prediction plotted explicitly. Left: predictions (orange) over
 the candidate tiles (faint white) and the true path (green); predictions can
 only ever fall on tile centres. Right: each prediction joined to the aircraft's
@@ -769,7 +769,7 @@ altitude or database size.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/dataset3_vs_dataset4_terrain.png}
+\includegraphics[width=0.80\textwidth]{figures/dataset3_vs_dataset4_terrain.png}
 \caption{The two flights, drawn on their respective reference maps.
 \texttt{dataset3} (left) loops over a large area of continuous forest;
 \texttt{dataset4} (right) passes directly over the terminal apron, hangars and
@@ -779,7 +779,7 @@ taxiways.}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/caevl_munfrl_map.png}
+\includegraphics[width=0.80\textwidth]{figures/caevl_munfrl_map.png}
 \caption{Retrieval on \texttt{dataset3}. Correct predictions (green) occur
 almost exclusively on the northwestern leg near the airport buildings; the long
 southern arc over forest fails almost entirely. The right panel shows the
@@ -790,7 +790,7 @@ near-missing.}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/caevl_munfrl_error.png}
+\includegraphics[width=0.80\textwidth]{figures/caevl_munfrl_error.png}
 \caption{Retrieval error against altitude on \texttt{dataset3}, and the error
 distribution. No clean monotonic relationship with altitude is present, which is
 what first indicated that scene content rather than scale was the governing
@@ -800,7 +800,7 @@ factor.}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/caevl_dataset4_map.png}
+\includegraphics[width=0.80\textwidth]{figures/caevl_dataset4_map.png}
 \caption{Where retrieval succeeds. Green: correct within 100\,m. Red:
 incorrect. Successes concentrate on runway markings and the terminal apron; the
 featureless stretch between runways fails.}
@@ -832,7 +832,7 @@ takeoff. The causal estimator uses only information available at each instant.}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/FINAL_causal_dataset4.png}
+\includegraphics[width=0.80\textwidth]{figures/FINAL_causal_dataset4.png}
 \caption{Causal fusion over the full flight. Red: OpenVINS alone. Green: RTK
 ground truth. Magenta: fused. Yellow: CAEVL predictions. Grey band: dead
 reckoning on the VIO before handover. Gold band: while predictions arrive.
@@ -866,7 +866,7 @@ is encoding the query rather than searching the map.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/compute_cost.png}
+\includegraphics[width=0.80\textwidth]{figures/compute_cost.png}
 \caption{Measured computational cost. Motion tracking needs less than one
 processor core and runs 3.5 times faster than the camera requires; map matching
 needs roughly seventeen. On a single core the latter would produce one fix every
@@ -930,7 +930,7 @@ error is only 14\% lower.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/run_variance.png}
+\includegraphics[width=0.80\textwidth]{figures/run_variance.png}
 \caption{Three OpenVINS runs on identical inputs. Runs 2 and 3 are nearly
 indistinguishable; run 1 initialised into a worse basin.}
 \label{fig:variance}
@@ -946,7 +946,7 @@ one --- which again points at coverage rather than at the estimator.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/FINAL_dataset4_q200.png}
+\includegraphics[width=0.80\textwidth]{figures/FINAL_dataset4_q200.png}
 \caption{Offline fusion with the altitude profile. The gold band marks where
 predictions are available; it coincides exactly with the portion of the flight
 above the altitude required to image a full tile (dashed line, 65.6\,m).}
@@ -1000,7 +1000,7 @@ compensate fails for the reasons given in Section~\ref{sec:tilesize}.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.84\textwidth]{figures/whole_flight_context.png}
+\includegraphics[width=0.80\textwidth]{figures/whole_flight_context.png}
 \caption{Why coverage is limited. Left: the full 319\,s track (blue) with
 takeoff and landing marked; white shows where queries exist and green where
 retrieval succeeded. Right: the altitude profile, with the dashed line at the
