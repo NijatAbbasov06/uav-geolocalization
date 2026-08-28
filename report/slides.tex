@@ -264,13 +264,13 @@ before handover at $t{+}73$\,s.\quad\textbf{464\,m $\rightarrow$ 198\,m}}
 Translation RMSE  & $489 \pm 44$\,m & $\bm{248 \pm 86}$\,\textbf{m} & $-49\%$ \\
 \quad best run    & 463.8\,m & \textbf{198.2\,m} & $-57\%$ \\
 Trajectory drift  & $17.7 \pm 1.5\%$ & $\bm{10.1 \pm 3.6\%}$ & $-43\%$ \\
-Peak RAM          & 366\,MB & $+$2.08\,GB (CAEVL) & --- \\
 \midrule
 Orientation RMSE  & \multicolumn{3}{c}{\emph{not measurable --- ground truth carries no attitude}} \\
 \midrule
 Output rate       & 20\,Hz & 20\,Hz & unchanged \\
 VIO runtime       & 14.1\,ms/frame & 14.1\,ms/frame & 28\% duty cycle \\
-Retrieval runtime & --- & 233\,ms/query (4.3\,Hz) & 1715\% CPU, 20 threads \\
+VIO CPU / RAM     & 60\% / 315\,MB & 60\% / 315\,MB & unchanged \\
+Retrieval         & --- & 233\,ms, 1715\% CPU, 2.08\,GB & added \\
 \bottomrule
 \end{tabular}
 
