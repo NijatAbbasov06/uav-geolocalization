@@ -40,7 +40,7 @@ outliers by mutual consensus among predictions that are nearby in time, using
 the VIO as the motion model; this raises precision from 17.7\% to 99.0\% while
 retaining 93\% of the correct predictions. A causal similarity-transform
 estimator then fuses the survivors with the VIO, reducing position RMSE from
-617\,m to 392\,m (36\%) using only information available at each instant; an
+540\,m to 347\,m (36\%) using only information available at each instant; an
 offline variant reaches 48\,m during cruise. We further report and automatically
 correct a 456\,m georeferencing error in the map metadata shipped with MUN-FRL,
 and we characterise the principal limitation: geo-localization is physically
@@ -606,9 +606,14 @@ buffer is screened for consensus; survivors accumulate; and the transform is
 refitted by Umeyama's method \cite{umeyama1991} to all predictions accepted so
 far. Scale is observable only over long baselines, so the fit uses the full
 accepted history rather than a short window --- still causal, with growing
-memory. Until enough accepted predictions span 300\,m no transform exists and
-the system is simply not localised; this warm-up is reported rather than
-concealed, because on a real flight it is dead time.
+memory. Until enough accepted predictions span 300\,m the geo-localization
+transform is not yet available. A navigation system must nonetheless output a
+position at every instant, so until handover the estimator dead-reckons on the
+VIO from the known takeoff pose --- position and heading that a real vehicle has
+from a survey or from the last GNSS fix before denial --- with scale held at
+unity, since the VIO's scale deficit is not knowable in advance. On this
+sequence handover occurs at $t+73$\,s, and a position is therefore available
+for 100\% of the flight.
 
 \begin{algorithm}[H]
 \caption{Causal fusion}
@@ -635,7 +640,7 @@ concealed, because on a real flight it is dead time.
 
 An EKF over the state $(x, y, s, \theta)$ with chi-square innovation gating was
 implemented for comparison. It performs substantially worse: 422\,m against
-392\,m for the transform estimator, and worse than the VIO baseline under some
+347\,m for the transform estimator, and worse than the VIO baseline under some
 tunings.
 
 Two mechanisms are responsible, and both are instructive.
@@ -813,8 +818,8 @@ takeoff. The causal estimator uses only information available at each instant.}
  & OpenVINS & Fused & Reduction \\
 \midrule
 \textbf{Causal (real-time)} & & & \\
-\quad RMSE & 617\,m & \textbf{392\,m} & 36\% \\
-\quad Final error & 700\,m & 515\,m & 26\% \\
+\quad RMSE & 540\,m & \textbf{347\,m} & 36\% \\
+\quad Final error & 658\,m & 515\,m & 22\% \\
 \midrule
 \textbf{Offline (upper bound)} & & & \\
 \quad RMSE, whole flight & 452\,m & 314\,m & 31\% \\
@@ -826,12 +831,18 @@ takeoff. The causal estimator uses only information available at each instant.}
 \begin{figure*}[t]
 \centering
 \includegraphics[width=0.9\textwidth]{figures/FINAL_causal_dataset4.png}
-\caption{Causal fusion. Red: OpenVINS alone. Green: RTK ground truth. Magenta:
-fused. Yellow: CAEVL predictions. Grey band: before localisation is available.
-Gold band: while predictions arrive. Bottom right: the online scale estimate,
-which does not fully converge before predictions cease.}
+\caption{Causal fusion over the full flight. Red: OpenVINS alone. Green: RTK
+ground truth. Magenta: fused. Yellow: CAEVL predictions. Grey band: dead
+reckoning on the VIO before handover. Gold band: while predictions arrive.
+Bottom right: the scale estimate, held at unity during dead reckoning and then
+learned online, though it does not fully converge before predictions cease.}
 \label{fig:causal}
 \end{figure*}
+
+Because the estimator dead-reckons before handover, a position is available for
+100\% of the flight rather than only after localisation; the two regimes are
+distinguished in Fig.~\ref{fig:causal} rather than the early period being
+omitted.
 
 The gap between the causal and offline results is itself informative. The
 offline estimator may use predictions from $t = 152$\,s to correct the estimate
@@ -919,7 +930,7 @@ noise parameters and the assumed gravity magnitude.
 We have demonstrated a CPU-only pipeline that bounds VIO drift using
 self-supervised aerial geo-localization requiring no paired training data,
 evaluated on real flight data with centimetre-accurate ground truth. In real
-time, position RMSE falls from 617\,m to 392\,m; where absolute fixes are
+time, position RMSE falls from 540\,m to 347\,m; where absolute fixes are
 available, offline error falls from 166\,m to 48\,m.
 
 The principal finding is methodological. With an inlier rate below 20\% and a
