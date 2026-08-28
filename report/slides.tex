@@ -103,22 +103,24 @@ Ours & 48.14\% \\
 
 \begin{frame}{OpenVINS --- and the dataset problem}
 \begin{columns}[T]
-\begin{column}{0.42\textwidth}
-MSCKF, monocular, nadir camera.\\
-\textbf{No loop closure.}
+\begin{column}{0.44\textwidth}
+One camera $+$ an IMU. It never recognises places it has already been, so
+errors only accumulate.
 
-\vspace{0.9em}
-Anchored at takeoff:\\
-\textbf{14.7\,m $\rightarrow$ 700\,m}
+\vspace{0.6em}
+From the takeoff point it starts \textbf{14.7\,m} out and ends \textbf{700\,m}
+out after 3.6\,km.
 
-\vspace{0.5em}
-Scale-corrected: 215\,m\\
-$\Rightarrow$ mostly a \textbf{40\% scale deficit}
+\vspace{0.6em}
+The \emph{shape} is right, but the path comes out \textbf{too small} --- as if
+the flight were shrunk. Stretching it back fixes most of the error.
 
-\vspace{1.3em}
-\textbf{Why so few usable datasets?}\\[0.4em]
-{\small VIO needs \textbf{parallax} $\rightarrow$ low\\
-Geo-loc needs \textbf{footprint} $\rightarrow$ high}
+\vspace{0.8em}
+\textbf{Why so few usable datasets?}\\[0.3em]
+{\small Camera tracking wants to fly \textbf{low}\\
+{\scriptsize things move more between frames}\\[0.2em]
+Map matching wants to fly \textbf{high}\\
+{\scriptsize each photo covers more ground}}
 \end{column}
 \begin{column}{0.56\textwidth}
 \centering
@@ -212,8 +214,8 @@ $\hat{\bm{p}}_k = s\,\bm{R}(\theta)\,\bm{p}^{\text{vio}}_k + \bm{t}$
 \begin{column}{0.47\textwidth}
 \raggedright
 \textbf{Why estimate $s$ and $\theta$?}\\[0.3em]
-{\small Arbitrary initial heading, and a 40\% scale deficit that would return
-between every pair of fixes.}
+{\small The system starts not knowing which way is north, and the VIO path comes
+out too small --- both must be learned from the matches.}
 
 \vspace{1.2em}
 \textbf{An EKF lost: 422\,m vs 347\,m}\\[0.3em]
@@ -296,9 +298,10 @@ time.}
 \begin{enumerate}
 \item \textbf{Query-side scale normalisation}\\
       {\small one database at the lowest operating altitude; rescale queries down to it}
-\item \textbf{Retrain CAEVL at a 100\,m footprint}\\
-      {\small currently trained at 1438\,m --- a $14.4\times$ gap}
-\item Resolve the VIO scale deficit\\
+\item \textbf{Retrain on map tiles the right size}\\
+      {\small trained on tiles covering 1438\,m of ground, used on 100\,m ---
+      a $14\times$ mismatch}
+\item Find out why the VIO path comes out too small\\
       {\small also the source of run-to-run spread: 540 vs 464\,m from
       identical inputs}
 \end{enumerate}
